@@ -183,10 +183,12 @@ services:
         DOCKER_BUILDKIT: 1
     restart: always
     environment:
-      - LIVE_SERVER_SECRET_KEY=changeme-live-secret-key-1234567890
-      - API_BASE_URL=http://plane-api:8000
+      LIVE_SERVER_SECRET_KEY: changeme-live-secret-key-1234567890
+      API_BASE_URL: http://plane-api:8000
+      REDIS_URL: redis://plane-redis:6379/
     depends_on:
       - plane-api
+      - plane-redis
     networks:
       - tagbag
 
