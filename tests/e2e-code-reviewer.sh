@@ -1,18 +1,33 @@
 #!/usr/bin/env bash
 # tests/e2e-code-reviewer.sh — E2E test: code reviewer sets commit status on Gitea
-# Prerequisites: all services running, Gitea admin token configured
+# Prerequisites: all services running, Gitea admin token configured, python3 installed
 set -euo pipefail
 
 GITEA_URL="${GITEA_URL:-http://localhost:3000}"
 GITEA_TOKEN="${GITEA_TOKEN:-}"
 REVIEWER_URL="${REVIEWER_URL:-http://localhost:9876}"
 GITEA_WEBHOOK_SECRET="${GITEA_WEBHOOK_SECRET:-}"
-TEST_REPO="e2e-reviewer-test"
+TEST_REPO="e2e-reviewer-test-$$"
 TEST_ORG="tagbag"
 
 PASS=0
 FAIL=0
 SKIP=0
+
+# Track resources for cleanup
+CREATED_REPO=""
+
+cleanup() {
+  echo ""
+  echo "[Cleanup] Removing test data..."
+  if [ -n "$CREATED_REPO" ]; then
+    curl -s -o /dev/null -X DELETE \
+      -H "Authorization: token ${GITEA_TOKEN}" \
+      "${GITEA_URL}/api/v1/repos/${TEST_ORG}/${CREATED_REPO}" || true
+    echo "  Deleted repo: ${TEST_ORG}/${CREATED_REPO}"
+  fi
+}
+trap cleanup EXIT
 
 check() {
   local name="$1" result="$2"
@@ -32,19 +47,31 @@ echo "=== E2E: Code Reviewer Test ==="
 echo ""
 
 # ---------------------------------------------------------------
-# Pre-flight checks
+# Bootstrap: check required tools and services
 # ---------------------------------------------------------------
-echo "[Pre-flight] Checking services..."
+echo "[Bootstrap] Checking prerequisites..."
+
+if ! command -v python3 &>/dev/null; then
+  echo "  ERROR: python3 is required but not installed."
+  exit 1
+fi
+
+if ! command -v curl &>/dev/null; then
+  echo "  ERROR: curl is required but not installed."
+  exit 1
+fi
 
 GITEA_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${GITEA_URL}/api/v1/settings/api" 2>/dev/null || echo "000")
 if [ "$GITEA_STATUS" != "200" ]; then
   echo "  ERROR: Gitea not accessible at ${GITEA_URL} (HTTP ${GITEA_STATUS})"
+  echo "  Start services with: docker compose up -d"
   exit 1
 fi
 check "Gitea accessible" "pass"
 
 if [ -z "$GITEA_TOKEN" ]; then
   echo "  ERROR: GITEA_TOKEN not set. Export it before running."
+  echo "  Create one at: ${GITEA_URL}/user/settings/applications"
   exit 1
 fi
 check "Gitea token configured" "pass"
@@ -55,27 +82,20 @@ check "Gitea token configured" "pass"
 echo ""
 echo "[1/5] Setting up test repo..."
 
-REPO_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+REPO_RESULT=$(curl -s -X POST \
   -H "Authorization: token ${GITEA_TOKEN}" \
-  "${GITEA_URL}/api/v1/repos/${TEST_ORG}/${TEST_REPO}")
-
-if [ "$REPO_CHECK" = "200" ]; then
-  echo "  Repo ${TEST_ORG}/${TEST_REPO} already exists."
+  -H "Content-Type: application/json" \
+  -d "{\"name\": \"${TEST_REPO}\", \"auto_init\": true, \"default_branch\": \"main\"}" \
+  "${GITEA_URL}/api/v1/orgs/${TEST_ORG}/repos")
+REPO_NAME=$(echo "$REPO_RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('full_name', ''))" 2>/dev/null || echo "")
+if [ -n "$REPO_NAME" ]; then
+  echo "  Created repo: ${REPO_NAME}"
+  CREATED_REPO="${TEST_REPO}"
 else
-  REPO_RESULT=$(curl -s -X POST \
-    -H "Authorization: token ${GITEA_TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d "{\"name\": \"${TEST_REPO}\", \"auto_init\": true, \"default_branch\": \"main\"}" \
-    "${GITEA_URL}/api/v1/orgs/${TEST_ORG}/repos")
-  REPO_NAME=$(echo "$REPO_RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('full_name', ''))" 2>/dev/null || echo "")
-  if [ -n "$REPO_NAME" ]; then
-    echo "  Created repo: ${REPO_NAME}"
-  else
-    echo "  ERROR: Could not create repo. Response: $REPO_RESULT"
-    exit 1
-  fi
+  echo "  ERROR: Could not create repo. Response: $REPO_RESULT"
+  exit 1
 fi
-check "Test repo exists" "pass"
+check "Test repo created" "pass"
 
 # ---------------------------------------------------------------
 # Step 2: Create a commit via API
@@ -107,41 +127,9 @@ if [ -n "$COMMIT_SHA" ]; then
   echo "  Commit created: ${COMMIT_SHA}"
   check "Test commit created" "pass"
 else
-  # File may already exist, try update
-  FILE_SHA=$(curl -s \
-    -H "Authorization: token ${GITEA_TOKEN}" \
-    "${GITEA_URL}/api/v1/repos/${TEST_ORG}/${TEST_REPO}/contents/test_hello.py" | \
-    python3 -c "import sys, json; print(json.load(sys.stdin).get('sha', ''))" 2>/dev/null || echo "")
-
-  if [ -n "$FILE_SHA" ]; then
-    COMMIT_RESULT=$(curl -s -X PUT \
-      -H "Authorization: token ${GITEA_TOKEN}" \
-      -H "Content-Type: application/json" \
-      -d "{
-        \"content\": \"$(echo -n "# E2E test $(date +%s)" | base64)\",
-        \"message\": \"test: update hello world for reviewer E2E\",
-        \"sha\": \"${FILE_SHA}\"
-      }" \
-      "${GITEA_URL}/api/v1/repos/${TEST_ORG}/${TEST_REPO}/contents/test_hello.py")
-
-    COMMIT_SHA=$(echo "$COMMIT_RESULT" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(d.get('commit', {}).get('sha', ''))
-except (json.JSONDecodeError, AttributeError):
-    print('')
-" 2>/dev/null || echo "")
-  fi
-
-  if [ -n "$COMMIT_SHA" ]; then
-    echo "  Commit updated: ${COMMIT_SHA}"
-    check "Test commit created" "pass"
-  else
-    echo "  WARNING: Could not create commit"
-    check "Test commit created" "fail"
-    COMMIT_SHA="HEAD"
-  fi
+  echo "  WARNING: Could not create commit"
+  check "Test commit created" "fail"
+  COMMIT_SHA="HEAD"
 fi
 
 # ---------------------------------------------------------------
@@ -152,9 +140,9 @@ echo "[3/5] Checking reviewer service..."
 
 REVIEWER_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${REVIEWER_URL}/health" 2>/dev/null || echo "000")
 if [ "$REVIEWER_STATUS" = "000" ]; then
-  echo "  SKIP: Reviewer not running at ${REVIEWER_URL}"
+  echo "  ERROR: Reviewer not running at ${REVIEWER_URL}"
   echo "  Start with: tagbag reviewer start"
-  check "Reviewer accessible" "skip"
+  check "Reviewer accessible" "fail"
 else
   check "Reviewer accessible" "pass"
 
