@@ -5,7 +5,7 @@ echo "=== TagBag Setup ==="
 echo ""
 
 # 1. Init submodules
-echo "[1/4] Initializing submodules..."
+echo "[1/5] Initializing submodules..."
 git submodule update --init --recursive
 
 # 2. Add upstream remotes (idempotent)
@@ -24,7 +24,7 @@ else
 fi
 
 # 4. Build and start
-echo "[4/4] Building from source and starting services..."
+echo "[4/5] Building from source and starting services..."
 echo ""
 echo "  This will take a while on first run (building Go, Python, Node.js from source)."
 echo ""
@@ -36,6 +36,18 @@ docker compose exec postgres sh -c 'until pg_isready -U plane; do sleep 1; done'
 echo ""
 echo "  Starting all services..."
 docker compose up -d
+
+# 5. Plane first-time setup (instance, admin, workspace, project, API token)
+echo ""
+echo "[5/5] Running Plane first-time setup..."
+echo "  Waiting for Plane API to be ready..."
+for _ in $(seq 1 30); do
+  if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/instances/ | grep -q "200"; then
+    break
+  fi
+  sleep 2
+done
+scripts/setup-plane.sh
 
 echo ""
 echo "=== Services ==="
