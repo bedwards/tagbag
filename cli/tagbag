@@ -1093,6 +1093,26 @@ save_credentials() {
 }
 
 cmd_login() {
+    local auto=false
+    local gitea_user="${TAGBAG_GITEA_USER:-tagbag}"
+    local gitea_pass="${TAGBAG_GITEA_PASS:-tagbag123}"
+    local token_name="${TAGBAG_TOKEN_NAME:-tagbag-auto}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --auto)        auto=true; shift ;;
+            --gitea-user)  [[ -n "$2" && "$2" != --* ]] || die "Option '--gitea-user' requires an argument."; gitea_user="$2"; shift 2 ;;
+            --gitea-pass)  [[ -n "$2" && "$2" != --* ]] || die "Option '--gitea-pass' requires an argument."; gitea_pass="$2"; shift 2 ;;
+            --token-name)  [[ -n "$2" && "$2" != --* ]] || die "Option '--token-name' requires an argument."; token_name="$2"; shift 2 ;;
+            *)             die "Unknown login option: $1" ;;
+        esac
+    done
+
+    if [[ "$auto" == "true" ]]; then
+        cmd_login_auto "$gitea_user" "$gitea_pass" "$token_name"
+        return
+    fi
+
     cat <<'EOF'
 tagbag login — configure tokens for all three services
 
@@ -1144,6 +1164,96 @@ EOF
     fi
 
     echo ""
+    _login_save_config
+}
+
+cmd_login_auto() {
+    local gitea_user="$1" gitea_pass="$2" token_name="$3"
+
+    info "Non-interactive login — creating tokens automatically"
+    echo ""
+
+    # ── Step 1: Gitea API token ──────────────────────────────────────────────
+    echo -e "${BOLD}Step 1: Gitea API token${NC}"
+
+    # Delete any existing token with the same name (ignore errors)
+    curl -sf -X DELETE \
+        -u "${gitea_user}:${gitea_pass}" \
+        "${GITEA_URL}/api/v1/users/${gitea_user}/tokens/${token_name}" \
+        >/dev/null 2>&1 || true
+
+    local gitea_resp
+    gitea_resp=$(curl -sf -X POST \
+        "${GITEA_URL}/api/v1/users/${gitea_user}/tokens" \
+        -u "${gitea_user}:${gitea_pass}" \
+        -H 'Content-Type: application/json' \
+        -d "{\"name\":\"${token_name}\",\"scopes\":[\"write:repository\",\"write:issue\",\"read:organization\",\"read:user\"]}" 2>/dev/null) || true
+
+    if [[ -n "$gitea_resp" ]]; then
+        GITEA_TOKEN=$(echo "$gitea_resp" | jq -r '.sha1 // .token // empty')
+        if [[ -n "$GITEA_TOKEN" ]]; then
+            echo -e "  ${GREEN}Gitea token created for user: ${gitea_user}${NC}"
+        else
+            warn "Gitea responded but no token field found in response"
+            warn "Response: ${gitea_resp}"
+        fi
+    else
+        warn "Could not create Gitea token (is Gitea running at ${GITEA_URL}?)"
+    fi
+
+    # ── Step 2: Plane API token ──────────────────────────────────────────────
+    echo ""
+    echo -e "${BOLD}Step 2: Plane API token${NC}"
+
+    if curl -s "${PLANE_URL}/api/v1/users/me/" &>/dev/null; then
+        # Plane is up, but we cannot create API tokens via the API without
+        # an existing token or admin credentials. Check if a token is already
+        # configured in the environment.
+        if [[ -n "$PLANE_API_TOKEN" ]]; then
+            local plane_user
+            plane_user=$(curl -sf -H "X-Api-Key: $PLANE_API_TOKEN" \
+                "${PLANE_URL}/api/v1/users/me/" 2>/dev/null | jq -r '.display_name // empty' 2>/dev/null)
+            if [[ -n "$plane_user" ]]; then
+                echo -e "  ${GREEN}Using existing Plane token (user: ${plane_user})${NC}"
+            else
+                warn "Existing PLANE_API_TOKEN is invalid; clearing it"
+                PLANE_API_TOKEN=""
+            fi
+        else
+            warn "Plane is running but API tokens must be created in the web UI"
+            echo "  Visit: ${PLANE_URL} -> Workspace Settings -> API Tokens"
+            echo "  Then run: tagbag login (interactive) or set PLANE_API_TOKEN"
+        fi
+    else
+        warn "Plane is not reachable at ${PLANE_URL} — skipping"
+    fi
+
+    # ── Step 3: Woodpecker token ─────────────────────────────────────────────
+    echo ""
+    echo -e "${BOLD}Step 3: Woodpecker token${NC}"
+
+    if [[ -n "$WOODPECKER_TOKEN" ]]; then
+        local wp_user
+        wp_user=$(curl -sf -H "Authorization: Bearer $WOODPECKER_TOKEN" \
+            "${WOODPECKER_URL}/api/user" 2>/dev/null | jq -r '.login // empty' 2>/dev/null)
+        if [[ -n "$wp_user" ]]; then
+            echo -e "  ${GREEN}Using existing Woodpecker token (user: ${wp_user})${NC}"
+        else
+            warn "Existing WOODPECKER_TOKEN is invalid; clearing it"
+            WOODPECKER_TOKEN=""
+        fi
+    else
+        warn "Woodpecker tokens require OAuth login via Gitea first"
+        echo "  1. Open ${WOODPECKER_URL} and log in with your Gitea account"
+        echo "  2. Go to User icon -> Personal Access Token"
+        echo "  3. Then run: tagbag login (interactive) or set WOODPECKER_TOKEN"
+    fi
+
+    echo ""
+    _login_save_config
+}
+
+_login_save_config() {
     save_credentials
 
     # Also write the config file
@@ -1221,7 +1331,7 @@ main() {
 
     case "$cmd" in
         help|--help|-h) show_help ;;
-        login)          cmd_login ;;
+        login)          cmd_login "$@" ;;
         whoami)         cmd_whoami ;;
         status)         cmd_status ;;
         up)             cmd_up "$@" ;;
