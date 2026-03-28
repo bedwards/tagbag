@@ -4,6 +4,14 @@ set -euo pipefail
 
 echo "pre-commit: checking..."
 
+# Block secrets files from being committed
+SECRETS_STAGED=$(git diff --cached --name-only | grep -E '^(\.env|plane\.env)$' || true)
+if [ -n "$SECRETS_STAGED" ]; then
+    echo "pre-commit: BLOCKED — secrets file staged for commit: $SECRETS_STAGED"
+    echo "  These files must never be committed. Use .env.example / plane.env.example instead."
+    exit 1
+fi
+
 # Lint bash scripts if shellcheck is available
 if command -v shellcheck &>/dev/null; then
     shellcheck cli/tagbag scripts/*.sh setup.sh docker/init-db.sh 2>/dev/null || {
