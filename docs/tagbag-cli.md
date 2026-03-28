@@ -229,6 +229,106 @@ export PLANE_API_TOKEN="..."
 export WOODPECKER_TOKEN="..."
 ```
 
+## Git Operations
+
+### clone
+
+Clone a Gitea repository by owner/repo shorthand.
+
+```bash
+tagbag clone <owner/repo> [path] [--ssh]
+```
+
+| Argument / Option | Description |
+|---|---|
+| `<owner/repo>` | Repository to clone (e.g. `bedwards/my-project`) |
+| `[path]` | Optional local directory to clone into (defaults to repo name) |
+| `--ssh` | Clone via SSH (`ssh://git@localhost:2222`) instead of HTTP |
+
+Examples:
+
+```bash
+tagbag clone bedwards/my-project                    # clone via HTTP to ./my-project
+tagbag clone bedwards/my-project ~/src/myproj       # clone to custom path
+tagbag clone bedwards/my-project --ssh              # clone via SSH (port 2222)
+```
+
+### web
+
+Open the current repository's Gitea page in the default browser. Must be run from within a Gitea-hosted git repo.
+
+```bash
+tagbag web
+```
+
+### push
+
+Push a local repository to Gitea, with options for GitHub mirroring.
+
+```bash
+tagbag push <owner/repo> [options]
+```
+
+| Option | Description |
+|---|---|
+| `--github` | Also push to GitHub |
+| `--create` | Create the remote repository if it doesn't exist |
+| `--private` | Make the created repository private |
+| `--mirror` | Set up as a mirror (read-only copy) |
+| `--branch <name>` | Push only this branch (default: all branches) |
+| `--no-tags` | Don't push tags |
+
+Examples:
+
+```bash
+tagbag push bedwards/my-project --create --private   # create private repo and push
+tagbag push bedwards/my-project --github              # push to both Gitea and GitHub
+tagbag push bedwards/my-project --mirror              # set up as mirror
+tagbag push bedwards/my-project --branch main --no-tags  # push only main, skip tags
+```
+
+## Reviewer Commands (AI Code Review)
+
+The reviewer is an AI-powered code review service that watches Gitea pull requests and posts automated review comments.
+
+```bash
+tagbag reviewer start                # start the reviewer service
+tagbag reviewer stop                 # stop the reviewer service
+tagbag reviewer status               # check if the reviewer is running
+tagbag reviewer logs                 # tail reviewer logs
+tagbag reviewer register             # register the Gitea webhook for PR events
+tagbag reviewer protect              # enable branch protection requiring reviewer approval
+```
+
+| Subcommand | Description |
+|---|---|
+| `start` | Start the reviewer container |
+| `stop` | Stop the reviewer container |
+| `status` | Show whether the reviewer is running and healthy |
+| `logs` | Tail the reviewer service logs |
+| `register` | Create a Gitea webhook on the current repo so the reviewer receives PR events |
+| `protect` | Enable branch protection rules that require the reviewer's approval before merge |
+
+## Bridge Commands (GitHub-Gitea Sync)
+
+The bridge syncs repositories between GitHub and Gitea, enabling automatic mirroring and bi-directional webhook forwarding.
+
+```bash
+tagbag bridge start                  # start the bridge service
+tagbag bridge stop                   # stop the bridge service
+tagbag bridge status                 # check if the bridge is running
+tagbag bridge logs                   # tail bridge logs
+tagbag bridge register               # register webhooks for sync
+```
+
+| Subcommand | Description |
+|---|---|
+| `start` | Start the bridge container |
+| `stop` | Stop the bridge container |
+| `status` | Show whether the bridge is running and healthy |
+| `logs` | Tail the bridge service logs |
+| `register` | Set up webhooks on both GitHub and Gitea for automatic repository syncing |
+
 ## Architecture
 
 The CLI is a bash script that:
