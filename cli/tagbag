@@ -39,6 +39,30 @@ TAGBAG_COMPOSE_DIR="${TAGBAG_COMPOSE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.
 export OUTPUT_JSON=false
 QUIET=false
 
+# ─── Dependency Checks ──────────────────────────────────────────────────────
+
+for cmd in jq python3 docker curl; do
+    command -v "$cmd" >/dev/null 2>&1 || {
+        echo "error: '$cmd' is required but not found. Install it with your package manager (e.g. brew install $cmd)." >&2
+        exit 1
+    }
+done
+
+if docker compose --help >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+else
+    echo "error: 'docker compose' is required but neither 'docker compose' nor 'docker-compose' is available." >&2
+    exit 1
+fi
+export DOCKER_COMPOSE
+
+[[ -f "${TAGBAG_COMPOSE_DIR}/docker-compose.yml" ]] || {
+    echo "error: docker-compose.yml not found in ${TAGBAG_COMPOSE_DIR}. Run tagbag from the project root or set TAGBAG_COMPOSE_DIR." >&2
+    exit 1
+}
+
 # ─── Colors ──────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -679,7 +703,7 @@ cmd_status() {
     compose_dir="${TAGBAG_COMPOSE_DIR}"
     echo -e "${BOLD}TagBag Service Status${NC}"
     echo ""
-    docker compose -f "${compose_dir}/docker-compose.yml" ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || \
+    $DOCKER_COMPOSE -f "${compose_dir}/docker-compose.yml" ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || \
         warn "Docker compose not running or not available"
     echo ""
     echo -e "${BOLD}Endpoints:${NC}"
@@ -694,27 +718,27 @@ cmd_up() {
     local compose_dir
     compose_dir="${TAGBAG_COMPOSE_DIR}"
     info "Starting TagBag services..."
-    docker compose -f "${compose_dir}/docker-compose.yml" up -d "$@"
+    $DOCKER_COMPOSE -f "${compose_dir}/docker-compose.yml" up -d "$@"
 }
 
 cmd_down() {
     local compose_dir
     compose_dir="${TAGBAG_COMPOSE_DIR}"
     info "Stopping TagBag services..."
-    docker compose -f "${compose_dir}/docker-compose.yml" down "$@"
+    $DOCKER_COMPOSE -f "${compose_dir}/docker-compose.yml" down "$@"
 }
 
 cmd_build() {
     local compose_dir
     compose_dir="${TAGBAG_COMPOSE_DIR}"
     info "Building TagBag services..."
-    docker compose -f "${compose_dir}/docker-compose.yml" build "$@"
+    $DOCKER_COMPOSE -f "${compose_dir}/docker-compose.yml" build "$@"
 }
 
 cmd_logs() {
     local compose_dir
     compose_dir="${TAGBAG_COMPOSE_DIR}"
-    docker compose -f "${compose_dir}/docker-compose.yml" logs -f "$@"
+    $DOCKER_COMPOSE -f "${compose_dir}/docker-compose.yml" logs -f "$@"
 }
 
 # ─── Reviewer Command ────────────────────────────────────────────────────────
