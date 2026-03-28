@@ -23,8 +23,29 @@ GITEA_TOKEN="${GITEA_TOKEN:-}"
 PLANE_URL="${PLANE_URL:-http://localhost:8080}"
 PLANE_API_TOKEN="${PLANE_API_TOKEN:-}"
 PLANE_WORKSPACE="${TAGBAG_PLANE_WORKSPACE:-}"
+GITEA_WEBHOOK_SECRET="${GITEA_WEBHOOK_SECRET:-}"
 
 log() { echo "[$(date +%Y-%m-%dT%H:%M:%S)] $*" | tee -a "$BRIDGE_LOG"; }
+
+# Verify HMAC-SHA256 webhook signature from Gitea
+verify_signature() {
+    local body="$1" signature="$2"
+    if [[ -z "$GITEA_WEBHOOK_SECRET" ]]; then
+        log "WARNING: GITEA_WEBHOOK_SECRET not set — skipping signature verification"
+        return 0
+    fi
+    if [[ -z "$signature" ]]; then
+        log "REJECTED: missing X-Gitea-Signature header"
+        return 1
+    fi
+    local expected
+    expected=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITEA_WEBHOOK_SECRET" | sed 's/^.* //')
+    if [[ "$expected" != "$signature" ]]; then
+        log "REJECTED: invalid signature (expected=${expected}, got=${signature})"
+        return 1
+    fi
+    return 0
+}
 
 # Extract PROJ-123 references from text
 extract_refs() {
@@ -179,27 +200,51 @@ log "TagBag Webhook Bridge starting on port ${BRIDGE_PORT}"
 
 # Listen for webhooks
 while true; do
-    response="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"
+    # Default to 200; signature check may override to 401
+    resp_status="HTTP/1.1 200 OK"
+    resp_body="ok"
+
     tmpfifo=$(mktemp -u)
     mkfifo "$tmpfifo"
 
-    (echo -e "$response" | nc -l "$BRIDGE_PORT" > "$tmpfifo" 2>/dev/null) &
+    # Read the raw request into the fifo
+    tmpresp=$(mktemp -u)
+    mkfifo "$tmpresp"
+
+    (cat "$tmpresp" | nc -l "$BRIDGE_PORT" > "$tmpfifo" 2>/dev/null) &
     NC_PID=$!
     payload=$(timeout 300 cat "$tmpfifo" 2>/dev/null || true)
     rm -f "$tmpfifo"
-    wait $NC_PID 2>/dev/null || true
 
     if [[ -n "$payload" ]]; then
         json_body=$(echo "$payload" | sed -n '/^\r*$/,$ p' | tail -n +2)
+        signature=$(echo "$payload" | grep -i "^X-Gitea-Signature:" | awk '{print $2}' | tr -d '\r\n')
+
         if [[ -n "$json_body" ]]; then
-            # Detect event type from Gitea webhook header
-            event_type=$(echo "$payload" | grep -i "^X-Gitea-Event:" | awk '{print $2}' | tr -d '\r\n')
-            case "$event_type" in
-                push)           handle_push "$json_body" ;;
-                pull_request)   handle_pull_request "$json_body" ;;
-                create)         handle_create "$json_body" ;;
-                *)              log "Ignored event: ${event_type:-unknown}" ;;
-            esac
+            if verify_signature "$json_body" "$signature"; then
+                # Detect event type from Gitea webhook header
+                event_type=$(echo "$payload" | grep -i "^X-Gitea-Event:" | awk '{print $2}' | tr -d '\r\n')
+
+                # Send 200 response
+                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
+
+                case "$event_type" in
+                    push)           handle_push "$json_body" ;;
+                    pull_request)   handle_pull_request "$json_body" ;;
+                    create)         handle_create "$json_body" ;;
+                    *)              log "Ignored event: ${event_type:-unknown}" ;;
+                esac
+            else
+                # Send 401 response
+                echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp" &
+            fi
+        else
+            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
         fi
+    else
+        echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
     fi
+
+    rm -f "$tmpresp"
+    wait $NC_PID 2>/dev/null || true
 done
