@@ -158,7 +158,7 @@ fi
 # Prune clones older than 7 days
 CLONE_MAX_AGE_DAYS="${TAGBAG_CLONE_MAX_AGE:-7}"
 if [[ -d "$CLONE_DIR" ]]; then
-    find "$CLONE_DIR" -mindepth 2 -maxdepth 2 -type d -name ".git" -mtime "+${CLONE_MAX_AGE_DAYS}" -execdir bash -c 'log "Pruning stale clone: $(pwd)"; rm -rf "$(pwd)"' \; 2>/dev/null || true
+    find "$CLONE_DIR" -mindepth 3 -maxdepth 3 -type d -name ".git" -mtime "+${CLONE_MAX_AGE_DAYS}" -execdir bash -c 'log "Pruning stale clone: $(pwd)"; rm -rf "$(pwd)"' \; 2>/dev/null || true
 fi
 
 log "Review complete for ${REPO}@${SHA:0:8}"

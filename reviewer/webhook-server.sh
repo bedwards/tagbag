@@ -39,18 +39,38 @@ verify_signature() {
 
 REVIEW_QUEUE_MAX="${TAGBAG_REVIEW_QUEUE_MAX:-50}"
 REVIEW_QUEUE_WARN="${TAGBAG_REVIEW_QUEUE_WARN:-10}"
+REVIEW_QUEUE_LOCK="${REVIEW_QUEUE}.lock"
 
 log "TagBag Code Reviewer starting on port ${REVIEW_PORT}"
 log "Queue: ${REVIEW_QUEUE}"
 log "Log: ${REVIEW_LOG}"
+
+# Lock helper — uses flock if available, falls back to mkdir
+queue_lock() {
+    if command -v flock &>/dev/null; then
+        exec 9>"$REVIEW_QUEUE_LOCK"
+        flock 9
+    else
+        while ! mkdir "$REVIEW_QUEUE_LOCK" 2>/dev/null; do sleep 0.1; done
+    fi
+}
+queue_unlock() {
+    if command -v flock &>/dev/null; then
+        flock -u 9
+    else
+        rmdir "$REVIEW_QUEUE_LOCK" 2>/dev/null || true
+    fi
+}
 
 # Process review queue in background
 process_queue() {
     while true; do
         if [[ -s "$REVIEW_QUEUE" ]]; then
             local line
+            queue_lock
             line=$(head -1 "$REVIEW_QUEUE")
-            sed -i '' '1d' "$REVIEW_QUEUE" 2>/dev/null || tail -n +2 "$REVIEW_QUEUE" > "${REVIEW_QUEUE}.tmp" && mv "${REVIEW_QUEUE}.tmp" "$REVIEW_QUEUE"
+            tail -n +2 "$REVIEW_QUEUE" > "${REVIEW_QUEUE}.tmp" && mv "${REVIEW_QUEUE}.tmp" "$REVIEW_QUEUE"
+            queue_unlock
             if [[ -n "$line" ]]; then
                 log "Processing: $line"
                 # shellcheck disable=SC2086
@@ -92,6 +112,7 @@ while true; do
                 sha=$(echo "$json_body" | jq -r '.after // empty' 2>/dev/null)
                 ref=$(echo "$json_body" | jq -r '.ref // empty' 2>/dev/null)
                 if [[ -n "$repo" && -n "$sha" ]]; then
+                    queue_lock
                     queue_depth=$(wc -l < "$REVIEW_QUEUE" 2>/dev/null || echo "0")
                     queue_depth=$((queue_depth + 0))
                     if [[ "$queue_depth" -ge "$REVIEW_QUEUE_MAX" ]]; then
@@ -100,8 +121,9 @@ while true; do
                     elif [[ "$queue_depth" -ge "$REVIEW_QUEUE_WARN" ]]; then
                         log "WARNING: Queue depth ${queue_depth}/${REVIEW_QUEUE_MAX}"
                     fi
-                    log "Webhook received: ${repo} ${sha} ${ref}"
                     echo "${repo} ${sha} ${ref}" >> "$REVIEW_QUEUE"
+                    queue_unlock
+                    log "Webhook received: ${repo} ${sha} ${ref}"
                 fi
             else
                 echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp"
