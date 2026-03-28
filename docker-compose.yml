@@ -182,6 +182,9 @@ services:
       args:
         DOCKER_BUILDKIT: 1
     restart: always
+    environment:
+      - LIVE_SERVER_SECRET_KEY=changeme-live-secret-key-1234567890
+      - API_BASE_URL=http://plane-api:8000
     depends_on:
       - plane-api
     networks:
@@ -229,6 +232,8 @@ services:
     environment:
       FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-5242880}
       BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-uploads}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - plane-web
       - plane-api
