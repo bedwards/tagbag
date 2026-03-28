@@ -197,55 +197,45 @@ handle_create() {
     done
 }
 
+BRIDGE_QUEUE="${TAGBAG_CONFIG_DIR:-$HOME/.config/tagbag}/bridge-queue"
+mkdir -p "$(dirname "$BRIDGE_QUEUE")"
+
 log "TagBag Webhook Bridge starting on port ${BRIDGE_PORT}"
 
-# Listen for webhooks
-while true; do
-    # Default to 200; signature check may override to 401
-    resp_status="HTTP/1.1 200 OK"
-    resp_body="ok"
-
-    tmpfifo=$(mktemp -u)
-    mkfifo "$tmpfifo"
-
-    # Read the raw request into the fifo
-    tmpresp=$(mktemp -u)
-    mkfifo "$tmpresp"
-
-    (cat "$tmpresp" | nc -l "$BRIDGE_PORT" > "$tmpfifo" 2>/dev/null) &
-    NC_PID=$!
-    payload=$(timeout 300 cat "$tmpfifo" 2>/dev/null || true)
-    rm -f "$tmpfifo"
-
-    if [[ -n "$payload" ]]; then
-        json_body=$(echo "$payload" | sed -n '/^\r*$/,$ p' | tail -n +2)
-        signature=$(echo "$payload" | grep -i "^X-Gitea-Signature:" | awk '{print $2}' | tr -d '\r\n')
-
-        if [[ -n "$json_body" ]]; then
-            if verify_signature "$json_body" "$signature"; then
-                # Detect event type from Gitea webhook header
-                event_type=$(echo "$payload" | grep -i "^X-Gitea-Event:" | awk '{print $2}' | tr -d '\r\n')
-
-                # Send 200 response
-                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
-
+# Process bridge queue in background
+process_queue() {
+    while true; do
+        if [[ -s "$BRIDGE_QUEUE" ]]; then
+            local line
+            line=$(flock "${BRIDGE_QUEUE}.lock" bash -c '
+                head -1 "'"$BRIDGE_QUEUE"'"
+                tail -n +2 "'"$BRIDGE_QUEUE"'" > "'"$BRIDGE_QUEUE"'.tmp" && mv "'"$BRIDGE_QUEUE"'.tmp" "'"$BRIDGE_QUEUE"'"
+            ' 2>/dev/null || head -1 "$BRIDGE_QUEUE")
+            if [[ -n "$line" ]]; then
+                event_type=$(echo "$line" | cut -f1)
+                json_body=$(echo "$line" | cut -f2-)
+                log "Processing event: $event_type"
                 case "$event_type" in
                     push)           handle_push "$json_body" ;;
                     pull_request)   handle_pull_request "$json_body" ;;
                     create)         handle_create "$json_body" ;;
                     *)              log "Ignored event: ${event_type:-unknown}" ;;
                 esac
-            else
-                # Send 401 response
-                echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp"
             fi
-        else
-            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
         fi
-    else
-        echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
-    fi
+        sleep 1
+    done
+}
+process_queue &
+QUEUE_PID=$!
 
-    rm -f "$tmpresp"
-    wait $NC_PID 2>/dev/null || true
-done
+# Start threaded HTTP webhook server (handles concurrent connections)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+python3 "${SCRIPT_DIR}/webhook-http.py" &
+HTTP_PID=$!
+
+trap 'kill $QUEUE_PID $HTTP_PID 2>/dev/null; log "Bridge stopped"' EXIT
+
+# Wait for either process to exit
+wait -n $QUEUE_PID $HTTP_PID 2>/dev/null || true
+log "A subprocess exited unexpectedly, shutting down"
