@@ -338,7 +338,7 @@ services:
       postgres:
         condition: service_healthy
       gitea:
-        condition: service_started
+        condition: service_healthy
     networks:
       - tagbag
 

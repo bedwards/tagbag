@@ -31,9 +31,24 @@ echo ""
 echo "  This will take a while on first run (building Go, Python, Node.js from source)."
 echo ""
 docker compose build
+
+# Start infrastructure first and wait for healthy status
+echo "  Starting infrastructure (postgres, redis, mq, minio)..."
 docker compose up -d postgres plane-redis plane-mq plane-minio
-echo "  Waiting for PostgreSQL to be ready..."
+echo "  Waiting for infrastructure to be healthy..."
 docker compose exec postgres sh -c 'until pg_isready -U plane; do sleep 1; done'
+
+# Run plane-migrator and wait for it to complete before starting services
+echo "  Running Plane database migrations..."
+docker compose up -d plane-migrator
+echo "  Waiting for migrations to complete..."
+docker compose wait plane-migrator || {
+  echo ""
+  echo "  ERROR: Plane database migrations failed."
+  echo "  Check logs: docker compose logs plane-migrator"
+  exit 1
+}
+echo "  Migrations completed successfully."
 
 echo ""
 echo "  Starting all services..."
@@ -44,7 +59,7 @@ echo ""
 echo "[5/5] Running Plane first-time setup..."
 echo "  Waiting for Plane API to be ready..."
 PLANE_READY=false
-for _ in $(seq 1 30); do
+for _ in $(seq 1 60); do
   if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/instances/ | grep -q "200"; then
     PLANE_READY=true
     break
@@ -52,7 +67,7 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 if [ "$PLANE_READY" = "false" ]; then
-  echo "  ERROR: Plane API did not become ready within 60 seconds."
+  echo "  ERROR: Plane API did not become ready within 120 seconds."
   echo "  Check logs: docker compose logs plane-api"
   exit 1
 fi
