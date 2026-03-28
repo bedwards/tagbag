@@ -130,6 +130,7 @@ Commands:
   build [service...]      Build services from source
   logs [service...]       Tail service logs
 
+  web                     Open TagBag dashboard in browser
   push <owner/repo> [opts] Push a Gitea repo to GitHub (code+commits+tags)
   reviewer                Manage Claude Code reviewer (tmux, webhooks)
   plane                   Plane issue tracker commands
@@ -419,6 +420,23 @@ cmd_gitea() {
         repo)
             local repo="${1:?Usage: tagbag gitea repo <owner/name>}"
             gitea_api GET "/repos/${repo}" | jq '.' ;;
+
+        clone-url)
+            local repo="${1:?Usage: tagbag gitea clone-url <owner/name> [--ssh]}"
+            shift
+            local use_ssh=false
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --ssh) use_ssh=true; shift ;;
+                    *)     break ;;
+                esac
+            done
+            if [[ "$use_ssh" == "true" ]]; then
+                gitea_api GET "/repos/${repo}" | jq -r '.ssh_url'
+            else
+                gitea_api GET "/repos/${repo}" | jq -r '.clone_url'
+            fi
+            ;;
 
         create-repo)
             local name="" desc="" private="false"
@@ -895,6 +913,19 @@ cmd_push() {
     echo -e "${GREEN}Done!${NC} ${gitea_repo} pushed to github.com/${github_repo}"
 }
 
+# ─── Web Command ─────────────────────────────────────────────────────────────
+
+cmd_web() {
+    local web_dir
+    web_dir="${TAGBAG_COMPOSE_DIR}/web"
+    local web_file="${web_dir}/index.html"
+    if [[ ! -f "$web_file" ]]; then
+        die "Dashboard not found at ${web_file}"
+    fi
+    info "Opening TagBag dashboard..."
+    open "$web_file" 2>/dev/null || xdg-open "$web_file" 2>/dev/null || echo "Open ${web_file} in your browser"
+}
+
 # ─── Login Command ───────────────────────────────────────────────────────────
 
 TAGBAG_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tagbag"
@@ -1059,6 +1090,7 @@ main() {
         down)           cmd_down "$@" ;;
         build)          cmd_build "$@" ;;
         logs)           cmd_logs "$@" ;;
+        web)            cmd_web ;;
         push)           cmd_push "$@" ;;
         reviewer)       cmd_reviewer "$@" ;;
         plane)          cmd_plane "$@" ;;

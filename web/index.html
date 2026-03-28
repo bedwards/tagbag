@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TagBag</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-deep: #0a0a0c;
+  --bg-surface: #111114;
+  --bg-elevated: #18181c;
+  --bg-hover: #1f1f24;
+  --border: #2a2a30;
+  --border-subtle: #1e1e24;
+  --text-primary: #e8e6e3;
+  --text-secondary: #8a8a8f;
+  --text-muted: #555559;
+  --accent: #e8a848;
+  --accent-dim: #c4882a;
+  --accent-glow: rgba(232, 168, 72, 0.12);
+  --green: #3dd68c;
+  --green-dim: rgba(61, 214, 140, 0.15);
+  --red: #f04848;
+  --red-dim: rgba(240, 72, 72, 0.15);
+  --blue: #4ea8de;
+  --blue-dim: rgba(78, 168, 222, 0.15);
+  --yellow: #e8c848;
+  --yellow-dim: rgba(232, 200, 72, 0.15);
+  --purple: #a878e8;
+  --purple-dim: rgba(168, 120, 232, 0.15);
+  --orange: #e87848;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+  --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+  --radius: 4px;
+  --transition: 150ms ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { font-size: 13px; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ═══ Noise texture overlay ═══ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ═══ Top bar ═══ */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1.5rem;
+  height: 48px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.logo {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.logo-icon {
+  width: 20px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--bg-deep);
+  font-weight: 700;
+}
+
+/* ═══ Search ═══ */
+.search-wrap {
+  flex: 1;
+  max-width: 480px;
+  position: relative;
+}
+
+.search-input {
+  width: 100%;
+  padding: 6px 12px 6px 32px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.search-input::placeholder { color: var(--text-muted); }
+.search-input:focus { border-color: var(--accent-dim); }
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* ═══ Status rail ═══ */
+.status-rail {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.status-dot {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.dot.ok { background: var(--green); box-shadow: 0 0 6px rgba(61, 214, 140, 0.4); }
+.dot.err { background: var(--red); box-shadow: 0 0 6px rgba(240, 72, 72, 0.4); }
+
+.settings-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  transition: all var(--transition);
+}
+
+.settings-btn:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+/* ═══ Navigation tabs ═══ */
+.nav-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 1.5rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-tab {
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  user-select: none;
+}
+
+.nav-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.tab-count {
+  background: var(--bg-elevated);
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.nav-tab.active .tab-count { background: var(--accent-glow); color: var(--accent); }
+
+/* ═══ Main content ═══ */
+.main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+
+.view { display: none; animation: fadeIn 200ms ease; }
+.view.active { display: block; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ═══ Table styles ═══ */
+.data-table { width: 100%; border-collapse: collapse; }
+
+.data-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.9rem;
+  vertical-align: middle;
+}
+
+.data-table tr { transition: background var(--transition); }
+.data-table tbody tr:hover { background: var(--bg-hover); }
+
+/* ═══ Badges & pills ═══ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badge-green { background: var(--green-dim); color: var(--green); }
+.badge-red { background: var(--red-dim); color: var(--red); }
+.badge-blue { background: var(--blue-dim); color: var(--blue); }
+.badge-yellow { background: var(--yellow-dim); color: var(--yellow); }
+.badge-purple { background: var(--purple-dim); color: var(--purple); }
+.badge-muted { background: var(--bg-elevated); color: var(--text-muted); }
+
+.priority-urgent { color: var(--red); }
+.priority-high { color: var(--orange); }
+.priority-medium { color: var(--yellow); }
+.priority-low { color: var(--blue); }
+.priority-none { color: var(--text-muted); }
+
+/* ═══ Repo card ═══ */
+.repo-name {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.repo-desc {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.commit-sha {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--blue);
+}
+
+.commit-msg {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 500px;
+}
+
+.commit-author {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.time-ago {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ═══ Pipeline status icon ═══ */
+.status-icon { font-size: 0.9rem; }
+.status-icon.success { color: var(--green); }
+.status-icon.failure { color: var(--red); }
+.status-icon.running { color: var(--yellow); animation: pulse 1.5s infinite; }
+.status-icon.pending { color: var(--text-muted); }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ═══ Empty state ═══ */
+.empty {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.empty-icon { font-size: 2rem; margin-bottom: 0.75rem; opacity: 0.3; }
+
+/* ═══ Loading ═══ */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 3rem;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══ Settings modal ═══ */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 200;
+  animation: fadeIn 150ms ease;
+}
+
+.modal-overlay.active { display: flex; align-items: center; justify-content: center; }
+
+.modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2rem;
+  width: 90%;
+  max-width: 520px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
+.modal h2 {
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 1.5rem;
+}
+
+.field { margin-bottom: 1rem; }
+
+.field label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.field input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.field input:focus { border-color: var(--accent-dim); }
+.field input::placeholder { color: var(--text-muted); }
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+.btn {
+  padding: 7px 16px;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: all var(--transition);
+}
+
+.btn-primary { background: var(--accent); color: var(--bg-deep); border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-dim); }
+.btn-ghost { background: transparent; color: var(--text-secondary); }
+.btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ═══ Responsive ═══ */
+@media (max-width: 768px) {
+  .topbar { padding: 0 0.75rem; gap: 0.5rem; }
+  .nav-tabs { padding: 0 0.75rem; overflow-x: auto; }
+  .nav-tab { padding: 8px 10px; font-size: 0.75rem; }
+  .main { padding: 1rem; }
+  .status-rail { display: none; }
+  .data-table { font-size: 0.8rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ Top Bar ═══ -->
+<header class="topbar">
+  <div class="logo">
+    <div class="logo-icon">T</div>
+    TagBag
+  </div>
+
+  <div class="search-wrap">
+    <span class="search-icon">&#x2315;</span>
+    <input type="text" class="search-input" placeholder="Search repos, issues, PRs, pipelines..." id="searchInput">
+  </div>
+
+  <div class="status-rail" id="statusRail">
+    <div class="status-dot"><span class="dot" id="dotGitea"></span>Gitea</div>
+    <div class="status-dot"><span class="dot" id="dotPlane"></span>Plane</div>
+    <div class="status-dot"><span class="dot" id="dotWoodpecker"></span>CI</div>
+  </div>
+
+  <button class="settings-btn" onclick="toggleSettings()">&#x2699; Config</button>
+</header>
+
+<!-- ═══ Nav Tabs ═══ -->
+<nav class="nav-tabs">
+  <div class="nav-tab active" data-view="code" onclick="switchTab('code')">
+    &#x2630; Code <span class="tab-count" id="countCode">-</span>
+  </div>
+  <div class="nav-tab" data-view="commits" onclick="switchTab('commits')">
+    &#x2B24; Commits <span class="tab-count" id="countCommits">-</span>
+  </div>
+  <div class="nav-tab" data-view="issues" onclick="switchTab('issues')">
+    &#x25CB; Issues <span class="tab-count" id="countIssues">-</span>
+  </div>
+  <div class="nav-tab" data-view="prs" onclick="switchTab('prs')">
+    &#x21C4; Pull Requests <span class="tab-count" id="countPrs">-</span>
+  </div>
+  <div class="nav-tab" data-view="actions" onclick="switchTab('actions')">
+    &#x25B6; Actions <span class="tab-count" id="countActions">-</span>
+  </div>
+</nav>
+
+<!-- ═══ Main Content ═══ -->
+<main class="main">
+
+  <!-- Code View -->
+  <div class="view active" id="viewCode">
+    <div class="loading" id="loadingCode"><div class="spinner"></div> Loading repositories...</div>
+    <table class="data-table" id="tableCode" style="display:none">
+      <thead><tr><th>Repository</th><th>Last Commit</th><th>Updated</th><th>&#x2605;</th></tr></thead>
+      <tbody id="bodyCode"></tbody>
+    </table>
+  </div>
+
+  <!-- Commits View -->
+  <div class="view" id="viewCommits">
+    <div class="loading" id="loadingCommits"><div class="spinner"></div> Loading commits...</div>
+    <table class="data-table" id="tableCommits" style="display:none">
+      <thead><tr><th>SHA</th><th>Message</th><th>Author</th><th>Repo</th><th>When</th></tr></thead>
+      <tbody id="bodyCommits"></tbody>
+    </table>
+  </div>
+
+  <!-- Issues View -->
+  <div class="view" id="viewIssues">
+    <div class="loading" id="loadingIssues"><div class="spinner"></div> Loading work items...</div>
+    <table class="data-table" id="tableIssues" style="display:none">
+      <thead><tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>Assignee</th><th>Updated</th></tr></thead>
+      <tbody id="bodyIssues"></tbody>
+    </table>
+  </div>
+
+  <!-- Pull Requests View -->
+  <div class="view" id="viewPrs">
+    <div class="loading" id="loadingPrs"><div class="spinner"></div> Loading pull requests...</div>
+    <table class="data-table" id="tablePrs" style="display:none">
+      <thead><tr><th>#</th><th>Title</th><th>Author</th><th>Branch</th><th>CI</th><th>Updated</th></tr></thead>
+      <tbody id="bodyPrs"></tbody>
+    </table>
+  </div>
+
+  <!-- Actions View -->
+  <div class="view" id="viewActions">
+    <div class="loading" id="loadingActions"><div class="spinner"></div> Loading pipelines...</div>
+    <table class="data-table" id="tableActions" style="display:none">
+      <thead><tr><th>Status</th><th>#</th><th>Message</th><th>Branch</th><th>Repo</th><th>Duration</th><th>When</th></tr></thead>
+      <tbody id="bodyActions"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<!-- ═══ Settings Modal ═══ -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <h2>&#x2699; Configuration</h2>
+    <div class="field">
+      <label>Gitea URL</label>
+      <input id="cfgGiteaUrl" placeholder="http://localhost:3000">
+    </div>
+    <div class="field">
+      <label>Gitea Token</label>
+      <input id="cfgGiteaToken" type="password" placeholder="Personal access token">
+    </div>
+    <div class="field">
+      <label>Plane URL</label>
+      <input id="cfgPlaneUrl" placeholder="http://localhost:8080">
+    </div>
+    <div class="field">
+      <label>Plane API Token</label>
+      <input id="cfgPlaneToken" type="password" placeholder="X-Api-Key">
+    </div>
+    <div class="field">
+      <label>Plane Workspace Slug</label>
+      <input id="cfgPlaneWorkspace" placeholder="my-workspace">
+    </div>
+    <div class="field">
+      <label>Woodpecker URL</label>
+      <input id="cfgWoodpeckerUrl" placeholder="http://localhost:9080">
+    </div>
+    <div class="field">
+      <label>Woodpecker Token</label>
+      <input id="cfgWoodpeckerToken" type="password" placeholder="Personal access token">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="toggleSettings()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Save &amp; Reload</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══ Config ═══
+const DEFAULTS = {
+  giteaUrl: 'http://localhost:3000',
+  planeUrl: 'http://localhost:8080',
+  woodpeckerUrl: 'http://localhost:9080',
+};
+
+function getConfig() {
+  return {
+    giteaUrl: localStorage.getItem('tagbag_gitea_url') || DEFAULTS.giteaUrl,
+    giteaToken: localStorage.getItem('tagbag_gitea_token') || '',
+    planeUrl: localStorage.getItem('tagbag_plane_url') || DEFAULTS.planeUrl,
+    planeToken: localStorage.getItem('tagbag_plane_token') || '',
+    planeWorkspace: localStorage.getItem('tagbag_plane_workspace') || '',
+    woodpeckerUrl: localStorage.getItem('tagbag_woodpecker_url') || DEFAULTS.woodpeckerUrl,
+    woodpeckerToken: localStorage.getItem('tagbag_woodpecker_token') || '',
+  };
+}
+
+function toggleSettings() {
+  const m = document.getElementById('settingsModal');
+  const isOpen = m.classList.contains('active');
+  if (!isOpen) {
+    const c = getConfig();
+    document.getElementById('cfgGiteaUrl').value = c.giteaUrl;
+    document.getElementById('cfgGiteaToken').value = c.giteaToken;
+    document.getElementById('cfgPlaneUrl').value = c.planeUrl;
+    document.getElementById('cfgPlaneToken').value = c.planeToken;
+    document.getElementById('cfgPlaneWorkspace').value = c.planeWorkspace;
+    document.getElementById('cfgWoodpeckerUrl').value = c.woodpeckerUrl;
+    document.getElementById('cfgWoodpeckerToken').value = c.woodpeckerToken;
+  }
+  m.classList.toggle('active');
+}
+
+function saveSettings() {
+  localStorage.setItem('tagbag_gitea_url', document.getElementById('cfgGiteaUrl').value);
+  localStorage.setItem('tagbag_gitea_token', document.getElementById('cfgGiteaToken').value);
+  localStorage.setItem('tagbag_plane_url', document.getElementById('cfgPlaneUrl').value);
+  localStorage.setItem('tagbag_plane_token', document.getElementById('cfgPlaneToken').value);
+  localStorage.setItem('tagbag_plane_workspace', document.getElementById('cfgPlaneWorkspace').value);
+  localStorage.setItem('tagbag_woodpecker_url', document.getElementById('cfgWoodpeckerUrl').value);
+  localStorage.setItem('tagbag_woodpecker_token', document.getElementById('cfgWoodpeckerToken').value);
+  toggleSettings();
+  loadAll();
+}
+
+// ═══ API helpers ═══
+async function giteaFetch(path) {
+  const c = getConfig();
+  const headers = { 'Content-Type': 'application/json' };
+  if (c.giteaToken) headers['Authorization'] = `token ${c.giteaToken}`;
+  const r = await fetch(`${c.giteaUrl}/api/v1${path}`, { headers });
+  if (!r.ok) throw new Error(`Gitea ${r.status}`);
+  return r.json();
+}
+
+async function planeFetch(path) {
+  const c = getConfig();
+  const headers = { 'Content-Type': 'application/json' };
+  if (c.planeToken) headers['X-Api-Key'] = c.planeToken;
+  const r = await fetch(`${c.planeUrl}/api/v1${path}`, { headers });
+  if (!r.ok) throw new Error(`Plane ${r.status}`);
+  return r.json();
+}
+
+async function woodpeckerFetch(path) {
+  const c = getConfig();
+  const headers = { 'Content-Type': 'application/json' };
+  if (c.woodpeckerToken) headers['Authorization'] = `Bearer ${c.woodpeckerToken}`;
+  const r = await fetch(`${c.woodpeckerUrl}/api${path}`, { headers });
+  if (!r.ok) throw new Error(`Woodpecker ${r.status}`);
+  return r.json();
+}
+
+// ═══ Time formatting ═══
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const s = Math.floor((Date.now() - d) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function duration(start, end) {
+  if (!start) return '-';
+  const a = new Date(start * 1000), b = end ? new Date(end * 1000) : new Date();
+  const s = Math.floor((b - a) / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+function escHtml(s) {
+  return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+}
+
+// ═══ Tab switching ═══
+function switchTab(view) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view${view.charAt(0).toUpperCase() + view.slice(1)}`));
+}
+
+// ═══ Health checks ═══
+async function checkHealth() {
+  const c = getConfig();
+  for (const [id, url] of [['dotGitea', c.giteaUrl], ['dotPlane', c.planeUrl], ['dotWoodpecker', c.woodpeckerUrl]]) {
+    try {
+      const r = await fetch(url, { mode: 'no-cors' });
+      document.getElementById(id).className = 'dot ok';
+    } catch {
+      document.getElementById(id).className = 'dot err';
+    }
+  }
+}
+
+// ═══ Load: Code (repos) ═══
+async function loadCode() {
+  try {
+    const repos = await giteaFetch('/user/repos?sort=updated&limit=50');
+    const body = document.getElementById('bodyCode');
+    body.innerHTML = repos.map(r => `
+      <tr>
+        <td>
+          <div class="repo-name">${escHtml(r.full_name)}</div>
+          <div class="repo-desc">${escHtml(r.description || '')}</div>
+        </td>
+        <td><span class="commit-sha">${r.default_branch || 'main'}</span></td>
+        <td><span class="time-ago">${timeAgo(r.updated_at)}</span></td>
+        <td style="font-family:var(--mono);color:var(--text-muted);font-size:0.8rem">${r.stars_count || 0}</td>
+      </tr>
+    `).join('');
+    document.getElementById('countCode').textContent = repos.length;
+    document.getElementById('loadingCode').style.display = 'none';
+    document.getElementById('tableCode').style.display = 'table';
+  } catch (e) {
+    document.getElementById('loadingCode').innerHTML = `<div class="empty"><div class="empty-icon">&#x2630;</div>Could not load repos. ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══ Load: Commits ═══
+async function loadCommits() {
+  try {
+    const repos = await giteaFetch('/user/repos?sort=updated&limit=10');
+    let allCommits = [];
+    for (const r of repos.slice(0, 5)) {
+      try {
+        const commits = await giteaFetch(`/repos/${r.full_name}/commits?limit=10`);
+        allCommits.push(...commits.map(c => ({ ...c, repo: r.full_name })));
+      } catch {}
+    }
+    allCommits.sort((a, b) => new Date(b.created) - new Date(a.created));
+    allCommits = allCommits.slice(0, 30);
+    const body = document.getElementById('bodyCommits');
+    body.innerHTML = allCommits.map(c => `
+      <tr>
+        <td><span class="commit-sha">${c.sha?.substring(0, 7) || '?'}</span></td>
+        <td><span class="commit-msg">${escHtml(c.commit?.message?.split('\n')[0] || '')}</span></td>
+        <td><span class="commit-author">${escHtml(c.commit?.author?.name || '')}</span></td>
+        <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(c.repo)}</td>
+        <td><span class="time-ago">${timeAgo(c.created)}</span></td>
+      </tr>
+    `).join('');
+    document.getElementById('countCommits').textContent = allCommits.length;
+    document.getElementById('loadingCommits').style.display = 'none';
+    document.getElementById('tableCommits').style.display = 'table';
+  } catch (e) {
+    document.getElementById('loadingCommits').innerHTML = `<div class="empty"><div class="empty-icon">&#x2B24;</div>${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══ Load: Issues (Plane work items) ═══
+async function loadIssues() {
+  const c = getConfig();
+  if (!c.planeToken || !c.planeWorkspace) {
+    document.getElementById('loadingIssues').innerHTML = '<div class="empty"><div class="empty-icon">&#x25CB;</div>Configure Plane token and workspace in Settings</div>';
+    return;
+  }
+  try {
+    const projects = await planeFetch(`/workspaces/${c.planeWorkspace}/projects/`);
+    const projectList = projects.results || projects || [];
+    let allIssues = [];
+    for (const p of projectList.slice(0, 5)) {
+      try {
+        const items = await planeFetch(`/workspaces/${c.planeWorkspace}/projects/${p.id}/work-items/?expand=state,assignees`);
+        const results = items.results || items || [];
+        allIssues.push(...results.map(i => ({ ...i, project_identifier: p.identifier })));
+      } catch {}
+    }
+    const stateGroup = { backlog: 'badge-muted', unstarted: 'badge-muted', started: 'badge-blue', completed: 'badge-green', cancelled: 'badge-red' };
+    const priorityClass = { urgent: 'priority-urgent', high: 'priority-high', medium: 'priority-medium', low: 'priority-low', none: 'priority-none' };
+    const body = document.getElementById('bodyIssues');
+    body.innerHTML = allIssues.map(i => {
+      const sg = i.state_detail?.group || i.state?.group || '';
+      return `
+      <tr>
+        <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(i.project_identifier)}-${i.sequence_id || ''}</td>
+        <td>${escHtml(i.name || '')}</td>
+        <td><span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(i.state_detail?.name || sg || 'unknown')}</span></td>
+        <td><span class="${priorityClass[i.priority] || 'priority-none'}" style="font-family:var(--mono);font-size:0.8rem;text-transform:uppercase">${escHtml(i.priority || 'none')}</span></td>
+        <td style="font-size:0.8rem;color:var(--text-secondary)">${i.assignee_detail?.[0]?.display_name || '-'}</td>
+        <td><span class="time-ago">${timeAgo(i.updated_at)}</span></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('countIssues').textContent = allIssues.length;
+    document.getElementById('loadingIssues').style.display = 'none';
+    document.getElementById('tableIssues').style.display = 'table';
+  } catch (e) {
+    document.getElementById('loadingIssues').innerHTML = `<div class="empty"><div class="empty-icon">&#x25CB;</div>${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══ Load: Pull Requests ═══
+async function loadPrs() {
+  try {
+    const repos = await giteaFetch('/user/repos?sort=updated&limit=20');
+    let allPrs = [];
+    for (const r of repos.slice(0, 10)) {
+      try {
+        const prs = await giteaFetch(`/repos/${r.full_name}/pulls?state=open&limit=20`);
+        allPrs.push(...prs.map(p => ({ ...p, repo: r.full_name })));
+      } catch {}
+    }
+    allPrs.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    const body = document.getElementById('bodyPrs');
+    body.innerHTML = allPrs.map(p => `
+      <tr>
+        <td style="font-family:var(--mono);font-size:0.85rem;color:var(--accent)">#${p.number}</td>
+        <td>
+          <div>${escHtml(p.title)}</div>
+          <div style="font-size:0.75rem;color:var(--text-muted)">${escHtml(p.repo)}</div>
+        </td>
+        <td style="font-size:0.85rem;color:var(--text-secondary)">${escHtml(p.user?.login || '')}</td>
+        <td><span class="badge badge-purple">${escHtml(p.head?.ref || '')}</span> &rarr; <span class="badge badge-muted">${escHtml(p.base?.ref || '')}</span></td>
+        <td><span class="badge ${p.mergeable ? 'badge-green' : 'badge-yellow'}">${p.mergeable ? 'mergeable' : 'conflicts'}</span></td>
+        <td><span class="time-ago">${timeAgo(p.updated_at)}</span></td>
+      </tr>
+    `).join('');
+    document.getElementById('countPrs').textContent = allPrs.length;
+    document.getElementById('loadingPrs').style.display = 'none';
+    document.getElementById('tablePrs').style.display = 'table';
+  } catch (e) {
+    document.getElementById('loadingPrs').innerHTML = `<div class="empty"><div class="empty-icon">&#x21C4;</div>${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══ Load: Actions (Woodpecker pipelines) ═══
+async function loadActions() {
+  const c = getConfig();
+  if (!c.woodpeckerToken) {
+    document.getElementById('loadingActions').innerHTML = '<div class="empty"><div class="empty-icon">&#x25B6;</div>Configure Woodpecker token in Settings</div>';
+    return;
+  }
+  try {
+    const repos = await woodpeckerFetch('/user/repos');
+    let allPipelines = [];
+    for (const r of (repos || []).filter(r => r.active).slice(0, 10)) {
+      try {
+        const pipelines = await woodpeckerFetch(`/repos/${r.id}/pipelines?per_page=5`);
+        allPipelines.push(...(pipelines || []).map(p => ({ ...p, repo_name: r.full_name })));
+      } catch {}
+    }
+    allPipelines.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    const statusIcon = { success: '&#x2714;', failure: '&#x2718;', running: '&#x25CF;', pending: '&#x25CB;', blocked: '&#x25A0;', declined: '&#x2718;', error: '&#x2718;', killed: '&#x2718;' };
+    const statusClass = { success: 'success', failure: 'failure', running: 'running', pending: 'pending', error: 'failure', killed: 'failure' };
+    const body = document.getElementById('bodyActions');
+    body.innerHTML = allPipelines.map(p => `
+      <tr>
+        <td><span class="status-icon ${statusClass[p.status] || 'pending'}">${statusIcon[p.status] || '?'}</span></td>
+        <td style="font-family:var(--mono);font-size:0.85rem">${p.number || ''}</td>
+        <td><span class="commit-msg">${escHtml(p.message?.split('\n')[0] || '')}</span></td>
+        <td><span class="badge badge-purple">${escHtml(p.branch || '')}</span></td>
+        <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(p.repo_name || '')}</td>
+        <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-muted)">${duration(p.started_at, p.finished_at)}</td>
+        <td><span class="time-ago">${timeAgo(p.created_at ? new Date(p.created_at * 1000).toISOString() : '')}</span></td>
+      </tr>
+    `).join('');
+    document.getElementById('countActions').textContent = allPipelines.length;
+    document.getElementById('loadingActions').style.display = 'none';
+    document.getElementById('tableActions').style.display = 'table';
+  } catch (e) {
+    document.getElementById('loadingActions').innerHTML = `<div class="empty"><div class="empty-icon">&#x25B6;</div>${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══ Search ═══
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('.data-table tbody tr').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+
+// ═══ Load all ═══
+async function loadAll() {
+  checkHealth();
+  loadCode();
+  loadCommits();
+  loadIssues();
+  loadPrs();
+  loadActions();
+}
+
+// ═══ Init ═══
+loadAll();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
