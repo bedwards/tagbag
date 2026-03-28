@@ -5,7 +5,7 @@ set -euo pipefail
 
 PLANE_URL="${PLANE_URL:-http://localhost:8080}"
 ADMIN_EMAIL="${PLANE_ADMIN_EMAIL:-admin@tagbag.local}"
-ADMIN_PASSWORD="${PLANE_ADMIN_PASSWORD:-Tagbag!Secure123}"
+ADMIN_PASSWORD="${PLANE_ADMIN_PASSWORD:-changeme}"
 ADMIN_FIRST_NAME="${PLANE_ADMIN_FIRST_NAME:-TagBag}"
 ADMIN_LAST_NAME="${PLANE_ADMIN_LAST_NAME:-Admin}"
 COMPANY_NAME="${PLANE_COMPANY_NAME:-TagBag}"
@@ -147,7 +147,7 @@ MY_EMAIL=$(echo "$ME_RESPONSE" | python3 -c "
 import sys, json
 try:
     print(json.load(sys.stdin).get('email', ''))
-except:
+except (json.JSONDecodeError, AttributeError):
     print('')
 " 2>/dev/null || echo "")
 
@@ -170,7 +170,7 @@ try:
     data = json.load(sys.stdin)
     workspaces = data if isinstance(data, list) else data.get('results', [])
     print('true' if any(w.get('slug') == '${WORKSPACE_SLUG}' for w in workspaces) else 'false')
-except:
+except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
     print('false')
 " 2>/dev/null || echo "false")
 
@@ -199,7 +199,7 @@ try:
     data = json.load(sys.stdin)
     projects = data if isinstance(data, list) else data.get('results', [])
     print('true' if any(p.get('identifier') == '${PROJECT_IDENTIFIER}' for p in projects) else 'false')
-except:
+except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
     print('false')
 " 2>/dev/null || echo "false")
 
@@ -212,18 +212,24 @@ else
   if [ -n "$PROJ_ID" ]; then
     echo "  Project created: id=$PROJ_ID"
   else
-    # Check if it's a "already exists" error
+    # Check if it's a "already exists" error by looking at structured error fields
     ALREADY=$(echo "$PROJ_RESULT" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
-    errs = str(d)
-    print('true' if 'ALREADY_EXIST' in errs else 'false')
-except:
+    # Plane returns {'name': ['PROJECT_NAME_ALREADY_EXIST']} or {'identifier': [...]}
+    for field_errors in d.values():
+        if isinstance(field_errors, list):
+            for err in field_errors:
+                if 'ALREADY_EXIST' in str(err):
+                    print('true')
+                    sys.exit(0)
+    print('false')
+except (json.JSONDecodeError, AttributeError):
     print('false')
 " 2>/dev/null || echo "false")
     if [ "$ALREADY" = "true" ]; then
-      echo "  Project '${PROJECT_IDENTIFIER}' already exists (different workspace)."
+      echo "  Project '${PROJECT_IDENTIFIER}' already exists."
     else
       echo "  WARNING: Project creation response: $PROJ_RESULT"
     fi
@@ -242,7 +248,7 @@ try:
     data = json.load(sys.stdin)
     tokens = data if isinstance(data, list) else data.get('results', [])
     print('true' if any(t.get('label') == 'tagbag-cli' for t in tokens) else 'false')
-except:
+except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
     print('false')
 " 2>/dev/null || echo "false")
 

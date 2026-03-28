@@ -41,12 +41,19 @@ docker compose up -d
 echo ""
 echo "[5/5] Running Plane first-time setup..."
 echo "  Waiting for Plane API to be ready..."
+PLANE_READY=false
 for _ in $(seq 1 30); do
   if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/instances/ | grep -q "200"; then
+    PLANE_READY=true
     break
   fi
   sleep 2
 done
+if [ "$PLANE_READY" = "false" ]; then
+  echo "  ERROR: Plane API did not become ready within 60 seconds."
+  echo "  Check logs: docker compose logs plane-api"
+  exit 1
+fi
 scripts/setup-plane.sh
 
 echo ""
