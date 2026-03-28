@@ -37,6 +37,9 @@ verify_signature() {
     return 0
 }
 
+REVIEW_QUEUE_MAX="${TAGBAG_REVIEW_QUEUE_MAX:-50}"
+REVIEW_QUEUE_WARN="${TAGBAG_REVIEW_QUEUE_WARN:-10}"
+
 log "TagBag Code Reviewer starting on port ${REVIEW_PORT}"
 log "Queue: ${REVIEW_QUEUE}"
 log "Log: ${REVIEW_LOG}"
@@ -89,6 +92,14 @@ while true; do
                 sha=$(echo "$json_body" | jq -r '.after // empty' 2>/dev/null)
                 ref=$(echo "$json_body" | jq -r '.ref // empty' 2>/dev/null)
                 if [[ -n "$repo" && -n "$sha" ]]; then
+                    queue_depth=$(wc -l < "$REVIEW_QUEUE" 2>/dev/null || echo "0")
+                    queue_depth=$((queue_depth + 0))
+                    if [[ "$queue_depth" -ge "$REVIEW_QUEUE_MAX" ]]; then
+                        log "WARNING: Queue full (${queue_depth}/${REVIEW_QUEUE_MAX}) — dropping oldest entry"
+                        tail -n +2 "$REVIEW_QUEUE" > "${REVIEW_QUEUE}.tmp" && mv "${REVIEW_QUEUE}.tmp" "$REVIEW_QUEUE"
+                    elif [[ "$queue_depth" -ge "$REVIEW_QUEUE_WARN" ]]; then
+                        log "WARNING: Queue depth ${queue_depth}/${REVIEW_QUEUE_MAX}"
+                    fi
                     log "Webhook received: ${repo} ${sha} ${ref}"
                     echo "${repo} ${sha} ${ref}" >> "$REVIEW_QUEUE"
                 fi
