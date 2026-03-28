@@ -9,6 +9,7 @@ Self-hosted GitHub replacement built from forked open-source components, all Pos
 | **Gitea** | Git hosting, PRs, code review | `localhost:3000` (HTTP), `localhost:2222` (SSH) | `submodules/gitea/` (Go) |
 | **Plane** | Issues, sprints, project management | `localhost:8080` | `submodules/plane/` (Django + React) |
 | **Woodpecker CI** | CI/CD pipelines | `localhost:9080` | `submodules/woodpecker/` (Go) |
+| **TagBag Dashboard** | Unified web UI (Code, Issues, PRs, Actions) | `localhost:8888` | `web/index.html` |
 | **PostgreSQL** | Shared database (4 DBs: plane, gitea, woodpecker, tagbag) | `localhost:5432` | Docker image |
 
 ## Quick Start

@@ -682,6 +682,7 @@ cmd_status() {
         warn "Docker compose not running or not available"
     echo ""
     echo -e "${BOLD}Endpoints:${NC}"
+    echo "  Dashboard:         http://localhost:8888"
     echo "  Gitea (PRs):       http://localhost:${GITEA_HTTP_PORT:-3000}"
     echo "  Plane (Issues):    http://localhost:${LISTEN_HTTP_PORT:-8080}"
     echo "  Woodpecker (CI):   http://localhost:9080"
@@ -955,14 +956,9 @@ cmd_clone() {
 # ─── Web Command ─────────────────────────────────────────────────────────────
 
 cmd_web() {
-    local web_dir
-    web_dir="${TAGBAG_COMPOSE_DIR}/web"
-    local web_file="${web_dir}/index.html"
-    if [[ ! -f "$web_file" ]]; then
-        die "Dashboard not found at ${web_file}"
-    fi
-    info "Opening TagBag dashboard..."
-    open "$web_file" 2>/dev/null || xdg-open "$web_file" 2>/dev/null || echo "Open ${web_file} in your browser"
+    local url="http://localhost:8888"
+    info "Opening TagBag dashboard at ${url}..."
+    open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || echo "Open ${url} in your browser"
 }
 
 # ─── Login Command ───────────────────────────────────────────────────────────
