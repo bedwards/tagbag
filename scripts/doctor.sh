@@ -129,10 +129,9 @@ PORTS=(
 for entry in "${PORTS[@]}"; do
     PORT="${entry%%:*}"
     NAME="${entry#*:}"
-    LISTENERS=$(lsof -ti ":${PORT}" 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$LISTENERS" -gt 0 ]; then
-        # Check if it's our Docker container or something else
-        PROC=$(lsof -ti ":${PORT}" 2>/dev/null | head -1 | xargs -I{} ps -p {} -o comm= 2>/dev/null || echo "unknown")
+    PID=$(lsof -ti ":${PORT}" 2>/dev/null | head -1 || true)
+    if [ -n "$PID" ]; then
+        PROC=$(ps -p "$PID" -o comm= 2>/dev/null || echo "unknown")
         if echo "$PROC" | grep -qi "docker\|com.docker"; then
             check "Port ${PORT} (${NAME}): Docker" "pass"
         else
