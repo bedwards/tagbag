@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tests/e2e-webhook-bridge.sh — E2E test: webhook bridge links commits to Plane work items
-# Prerequisites: all services running, Gitea admin + Plane API token configured
+# Prerequisites: all services running, Gitea admin + Plane API token configured, python3 installed
 set -euo pipefail
 
 GITEA_URL="${GITEA_URL:-http://localhost:3000}"
@@ -10,12 +10,35 @@ PLANE_TOKEN="${PLANE_TOKEN:-}"
 PLANE_WORKSPACE="${PLANE_WORKSPACE:-tagbag}"
 BRIDGE_URL="${BRIDGE_URL:-http://localhost:9877}"
 GITEA_WEBHOOK_SECRET="${GITEA_WEBHOOK_SECRET:-}"
-TEST_REPO="e2e-webhook-test"
+TEST_REPO="e2e-webhook-test-$$"
 TEST_ORG="tagbag"
 
 PASS=0
 FAIL=0
 SKIP=0
+
+# Track resources for cleanup
+CREATED_REPO=""
+CREATED_WORK_ITEM_ID=""
+PROJ_ID=""
+
+cleanup() {
+  echo ""
+  echo "[Cleanup] Removing test data..."
+  if [ -n "$CREATED_REPO" ]; then
+    curl -s -o /dev/null -X DELETE \
+      -H "Authorization: token ${GITEA_TOKEN}" \
+      "${GITEA_URL}/api/v1/repos/${TEST_ORG}/${CREATED_REPO}" || true
+    echo "  Deleted repo: ${TEST_ORG}/${CREATED_REPO}"
+  fi
+  if [ -n "$CREATED_WORK_ITEM_ID" ] && [ -n "$PROJ_ID" ]; then
+    curl -s -o /dev/null -X DELETE \
+      -H "X-Api-Key: ${PLANE_TOKEN}" \
+      "${PLANE_URL}/api/v1/workspaces/${PLANE_WORKSPACE}/projects/${PROJ_ID}/work-items/${CREATED_WORK_ITEM_ID}/" || true
+    echo "  Deleted work item: ${CREATED_WORK_ITEM_ID}"
+  fi
+}
+trap cleanup EXIT
 
 check() {
   local name="$1" result="$2"
@@ -35,14 +58,25 @@ echo "=== E2E: Webhook Bridge Test ==="
 echo ""
 
 # ---------------------------------------------------------------
-# Pre-flight checks
+# Bootstrap: check required tools and services
 # ---------------------------------------------------------------
-echo "[Pre-flight] Checking services..."
+echo "[Bootstrap] Checking prerequisites..."
+
+if ! command -v python3 &>/dev/null; then
+  echo "  ERROR: python3 is required but not installed."
+  exit 1
+fi
+
+if ! command -v curl &>/dev/null; then
+  echo "  ERROR: curl is required but not installed."
+  exit 1
+fi
 
 # Check Gitea
 GITEA_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${GITEA_URL}/api/v1/settings/api" 2>/dev/null || echo "000")
 if [ "$GITEA_STATUS" != "200" ]; then
   echo "  ERROR: Gitea not accessible at ${GITEA_URL} (HTTP ${GITEA_STATUS})"
+  echo "  Start services with: docker compose up -d"
   exit 1
 fi
 check "Gitea accessible" "pass"
@@ -51,6 +85,7 @@ check "Gitea accessible" "pass"
 PLANE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${PLANE_URL}/api/instances/" 2>/dev/null || echo "000")
 if [ "$PLANE_STATUS" != "200" ]; then
   echo "  ERROR: Plane not accessible at ${PLANE_URL} (HTTP ${PLANE_STATUS})"
+  echo "  Start services with: docker compose up -d"
   exit 1
 fi
 check "Plane accessible" "pass"
@@ -58,10 +93,12 @@ check "Plane accessible" "pass"
 # Check tokens
 if [ -z "$GITEA_TOKEN" ]; then
   echo "  ERROR: GITEA_TOKEN not set. Export it before running."
+  echo "  Create one at: ${GITEA_URL}/user/settings/applications"
   exit 1
 fi
 if [ -z "$PLANE_TOKEN" ]; then
   echo "  ERROR: PLANE_TOKEN not set. Export it before running."
+  echo "  Create one at: ${PLANE_URL} > Workspace Settings > API Tokens"
   exit 1
 fi
 check "API tokens configured" "pass"
@@ -116,50 +153,43 @@ if [ -z "$WORK_ITEM_ID" ]; then
   exit 1
 fi
 
+CREATED_WORK_ITEM_ID="$WORK_ITEM_ID"
 WORK_ITEM_REF="${PROJ_IDENT}-${WORK_ITEM_SEQ}"
 echo "  Created: ${WORK_ITEM_REF} (id: ${WORK_ITEM_ID})"
 check "Work item created in Plane" "pass"
 
 # ---------------------------------------------------------------
-# Step 2: Create a test repo in Gitea (if not exists)
+# Step 2: Create a test repo in Gitea
 # ---------------------------------------------------------------
 echo ""
 echo "[2/5] Setting up test repo in Gitea..."
 
-REPO_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+REPO_RESULT=$(curl -s -X POST \
   -H "Authorization: token ${GITEA_TOKEN}" \
-  "${GITEA_URL}/api/v1/repos/${TEST_ORG}/${TEST_REPO}")
-
-if [ "$REPO_CHECK" = "200" ]; then
-  echo "  Repo ${TEST_ORG}/${TEST_REPO} already exists."
+  -H "Content-Type: application/json" \
+  -d "{\"name\": \"${TEST_REPO}\", \"auto_init\": true, \"default_branch\": \"main\"}" \
+  "${GITEA_URL}/api/v1/orgs/${TEST_ORG}/repos")
+REPO_NAME=$(echo "$REPO_RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('full_name', ''))" 2>/dev/null || echo "")
+if [ -n "$REPO_NAME" ]; then
+  echo "  Created repo: ${REPO_NAME}"
+  CREATED_REPO="${TEST_REPO}"
 else
-  REPO_RESULT=$(curl -s -X POST \
-    -H "Authorization: token ${GITEA_TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d "{\"name\": \"${TEST_REPO}\", \"auto_init\": true, \"default_branch\": \"main\"}" \
-    "${GITEA_URL}/api/v1/orgs/${TEST_ORG}/repos")
-  REPO_NAME=$(echo "$REPO_RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin).get('full_name', ''))" 2>/dev/null || echo "")
-  if [ -n "$REPO_NAME" ]; then
-    echo "  Created repo: ${REPO_NAME}"
-  else
-    echo "  ERROR: Could not create repo. Response: $REPO_RESULT"
-    exit 1
-  fi
+  echo "  ERROR: Could not create repo. Response: $REPO_RESULT"
+  exit 1
 fi
-check "Test repo exists" "pass"
+check "Test repo created" "pass"
 
 # ---------------------------------------------------------------
-# Step 3: Simulate a push webhook with PROJ-123 reference
+# Step 3: Simulate a push webhook with work item reference
 # ---------------------------------------------------------------
 echo ""
 echo "[3/5] Sending simulated push webhook to bridge..."
 
 BRIDGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BRIDGE_URL}/health" 2>/dev/null || echo "000")
 if [ "$BRIDGE_STATUS" = "000" ]; then
-  echo "  SKIP: Bridge not running at ${BRIDGE_URL}. Start it with: bridge/webhook-bridge.sh"
-  check "Bridge accessible" "skip"
-  check "Push webhook delivered" "skip"
-  check "Plane work item has comment" "skip"
+  echo "  ERROR: Bridge not running at ${BRIDGE_URL}"
+  echo "  Start it with: bridge/webhook-bridge.sh"
+  check "Bridge accessible" "fail"
 else
   check "Bridge accessible" "pass"
 
