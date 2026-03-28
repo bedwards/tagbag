@@ -18,7 +18,7 @@ echo ""
 # Collect all e2e test scripts
 TESTS=("$SCRIPT_DIR"/e2e-*.sh)
 
-if [ ${#TESTS[@]} -eq 0 ]; then
+if [[ ! -e "${TESTS[0]}" ]]; then
   echo "No E2E tests found in ${SCRIPT_DIR}"
   exit 1
 fi
