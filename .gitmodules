@@ -1,0 +1,9 @@
+[submodule "submodules/plane"]
+	path = submodules/plane
+	url = git@github.com:bedwards/plane.git
+[submodule "submodules/gitea"]
+	path = submodules/gitea
+	url = git@github.com:bedwards/gitea.git
+[submodule "submodules/woodpecker"]
+	path = submodules/woodpecker
+	url = git@github.com:bedwards/woodpecker.git

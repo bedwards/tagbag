@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Lint the bash CLI with shellcheck
+  # ---------------------------------------------------------------------------
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint cli/tagbag
+        run: shellcheck -x -s bash cli/tagbag
+
+      - name: Lint setup.sh
+        run: shellcheck -x -s bash setup.sh
+
+      - name: Lint any helper scripts in docker/
+        run: |
+          find docker/ -name '*.sh' -print0 | xargs -0 --no-run-if-empty shellcheck -x -s bash
+
+  # ---------------------------------------------------------------------------
+  # Validate docker-compose.yml syntax
+  # ---------------------------------------------------------------------------
+  docker-compose-validate:
+    name: Validate docker-compose.yml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # docker compose config requires env vars to be defined; use .env.example
+      - name: Prepare environment
+        run: cp .env.example .env
+
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+
+  # ---------------------------------------------------------------------------
+  # Check that .env.example has every var referenced in docker-compose.yml
+  # ---------------------------------------------------------------------------
+  env-completeness:
+    name: Check .env.example completeness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract vars from docker-compose.yml and verify .env.example
+        run: |
+          set -euo pipefail
+
+          # Pull ${VAR} and ${VAR:-default} references from docker-compose.yml
+          compose_vars=$(grep -oP '\$\{(\w+?)(?::?[-=][^}]*)?\}' docker-compose.yml \
+            | sed 's/\${//;s/[:=\-].*//;s/}//' \
+            | sort -u)
+
+          # Pull KEY= lines from .env.example
+          example_vars=$(grep -E '^\w+=' .env.example \
+            | cut -d= -f1 \
+            | sort -u)
+
+          missing=()
+          for var in $compose_vars; do
+            if ! echo "$example_vars" | grep -qx "$var"; then
+              missing+=("$var")
+            fi
+          done
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::The following vars are used in docker-compose.yml but missing from .env.example:"
+            printf '  %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+          echo "All docker-compose.yml variables are present in .env.example."
+
+  # ---------------------------------------------------------------------------
+  # Verify submodules are in a clean, checked-out state
+  # ---------------------------------------------------------------------------
+  submodule-check:
+    name: Submodule integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Recursively check out all submodules at the committed SHA
+          submodules: recursive
+          # fetch-depth 0 so submodule SHAs resolve even if they are old
+          fetch-depth: 0
+
+      - name: Verify submodule directories are non-empty
+        run: |
+          set -euo pipefail
+          for dir in submodules/gitea submodules/plane submodules/woodpecker; do
+            if [[ ! -d "$dir" ]] || [[ -z "$(ls -A "$dir")" ]]; then
+              echo "::error::Submodule $dir is missing or empty"
+              exit 1
+            fi
+            echo "OK: $dir"
+          done
+
+      - name: Verify no submodule is dirty
+        run: git submodule status --recursive | grep -v '^ ' && exit 1 || echo "All submodules clean."

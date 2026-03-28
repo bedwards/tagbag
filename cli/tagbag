@@ -1,0 +1,844 @@
+#!/usr/bin/env bash
+#
+# tagbag — unified CLI for TagBag (Gitea + Plane + Woodpecker)
+#
+# Usage: tagbag [global-opts] <command> [command-opts] [subcommand] [args...] [-- wrapped-args]
+#
+# Global options:
+#   --plane-url URL       Plane API base URL (default: http://localhost:8080)
+#   --plane-token TOKEN   Plane API token (or PLANE_API_TOKEN env)
+#   --gitea-url URL       Gitea base URL (default: http://localhost:3000)
+#   --gitea-token TOKEN   Gitea API token (or GITEA_TOKEN env)
+#   --woodpecker-url URL  Woodpecker base URL (default: http://localhost:9080)
+#   --woodpecker-token TK Woodpecker API token (or WOODPECKER_TOKEN env)
+#   --json                Output JSON (default for API commands)
+#   --quiet               Suppress non-essential output
+#   --help                Show help
+#
+set -euo pipefail
+
+# ─── Defaults ────────────────────────────────────────────────────────────────
+
+PLANE_URL="${PLANE_URL:-http://localhost:8080}"
+PLANE_API_TOKEN="${PLANE_API_TOKEN:-}"
+GITEA_URL="${GITEA_URL:-http://localhost:3000}"
+GITEA_TOKEN="${GITEA_TOKEN:-}"
+WOODPECKER_URL="${WOODPECKER_URL:-http://localhost:9080}"
+WOODPECKER_TOKEN="${WOODPECKER_TOKEN:-}"
+export OUTPUT_JSON=false
+QUIET=false
+
+# ─── Colors ──────────────────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+die()  { echo -e "${RED}error:${NC} $*" >&2; exit 1; }
+info() { [[ "$QUIET" == "true" ]] || echo -e "${CYAN}$*${NC}" >&2; }
+warn() { echo -e "${YELLOW}warning:${NC} $*" >&2; }
+
+require_plane_token() {
+    [[ -n "$PLANE_API_TOKEN" ]] || die "PLANE_API_TOKEN not set. Export it or pass --plane-token."
+}
+
+require_gitea_token() {
+    [[ -n "$GITEA_TOKEN" ]] || die "GITEA_TOKEN not set. Export it or pass --gitea-token."
+}
+
+require_woodpecker_token() {
+    [[ -n "$WOODPECKER_TOKEN" ]] || die "WOODPECKER_TOKEN not set. Export it or pass --woodpecker-token."
+}
+
+# Plane API helper
+plane_api() {
+    local method="$1" path="$2"
+    shift 2
+    require_plane_token
+    curl -sf -X "$method" \
+        -H "Content-Type: application/json" \
+        -H "X-Api-Key: $PLANE_API_TOKEN" \
+        "$@" \
+        "${PLANE_URL}/api/v1${path}"
+}
+
+# Gitea API helper
+gitea_api() {
+    local method="$1" path="$2"
+    shift 2
+    require_gitea_token
+    curl -sf -X "$method" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: token $GITEA_TOKEN" \
+        "$@" \
+        "${GITEA_URL}/api/v1${path}"
+}
+
+# Woodpecker API helper
+woodpecker_api() {
+    local method="$1" path="$2"
+    shift 2
+    require_woodpecker_token
+    curl -sf -X "$method" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $WOODPECKER_TOKEN" \
+        "$@" \
+        "${WOODPECKER_URL}/api${path}"
+}
+
+# ─── Help ────────────────────────────────────────────────────────────────────
+
+show_help() {
+    cat <<'EOF'
+tagbag — unified CLI for TagBag (Gitea + Plane + Woodpecker)
+
+Usage: tagbag [global-opts] <command> [subcommand] [args...] [-- wrapped-args]
+
+Global options:
+  --plane-url URL         Plane API URL       (env: PLANE_URL, default: http://localhost:8080)
+  --plane-token TOKEN     Plane API token     (env: PLANE_API_TOKEN)
+  --gitea-url URL         Gitea URL           (env: GITEA_URL, default: http://localhost:3000)
+  --gitea-token TOKEN     Gitea API token     (env: GITEA_TOKEN)
+  --woodpecker-url URL    Woodpecker URL      (env: WOODPECKER_URL, default: http://localhost:9080)
+  --woodpecker-token TK   Woodpecker token    (env: WOODPECKER_TOKEN)
+  --json                  Force JSON output
+  --quiet                 Suppress info messages
+  --help                  Show this help
+
+Commands:
+  login                   Configure tokens for all three services (interactive)
+  whoami                  Show current identity across all services
+  status                  Show status of all services
+  up                      Start all services (docker compose up -d)
+  down                    Stop all services (docker compose down)
+  build [service...]      Build services from source
+  logs [service...]       Tail service logs
+
+  plane                   Plane issue tracker commands
+  gitea                   Gitea git/PR commands (wraps tea CLI)
+  ci                      Woodpecker CI commands (wraps woodpecker-cli)
+
+Run 'tagbag <command> --help' for command-specific help.
+EOF
+}
+
+# ─── Plane Commands ──────────────────────────────────────────────────────────
+
+plane_help() {
+    cat <<'EOF'
+tagbag plane — Plane issue tracker commands
+
+Usage: tagbag plane <subcommand> [args...]
+
+Subcommands:
+  workspaces              List workspaces
+  projects <workspace>    List projects in a workspace
+  work-items <workspace> <project>
+                          List work items (issues)
+  work-item <workspace> <project> <id>
+                          Get work item details (UUID or PROJ-123)
+  create-work-item <workspace> <project> [opts]
+                          Create a work item
+    --name NAME           Title (required)
+    --description DESC    HTML description
+    --priority PRIORITY   none|urgent|high|medium|low
+    --state STATE-ID      State UUID
+    --assignee USER-ID    Assignee UUID (repeatable)
+    --label LABEL-ID      Label UUID (repeatable)
+  update-work-item <workspace> <project> <id> [opts]
+                          Update a work item (same opts as create)
+  delete-work-item <workspace> <project> <id>
+                          Delete a work item
+  search <workspace> --query TEXT [--limit N]
+                          Search work items across projects
+  states <workspace> <project>
+                          List workflow states
+  labels <workspace> <project>
+                          List labels
+  cycles <workspace> <project>
+                          List cycles/sprints
+  modules <workspace> <project>
+                          List modules
+  members <workspace>     List workspace members
+  comments <workspace> <project> <work-item-id>
+                          List comments on a work item
+  add-comment <workspace> <project> <work-item-id> --body TEXT
+                          Add a comment to a work item
+  me                      Show current authenticated user
+
+Run 'tagbag plane <subcommand> --help' for more details.
+EOF
+}
+
+cmd_plane() {
+    local subcmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        help|--help|-h) plane_help ;;
+
+        me)
+            plane_api GET "/users/me/" | jq '.' ;;
+
+        workspaces)
+            plane_api GET "/workspaces/" | jq '.' ;;
+
+        projects)
+            local ws="${1:?Usage: tagbag plane projects <workspace-slug>}"
+            plane_api GET "/workspaces/${ws}/projects/" | jq '.' ;;
+
+        work-items)
+            local ws="${1:?Usage: tagbag plane work-items <workspace> <project-id>}"
+            local proj="${2:?Usage: tagbag plane work-items <workspace> <project-id>}"
+            shift 2
+            local extra=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --expand)  extra="${extra}&expand=$2"; shift 2 ;;
+                    --order)   extra="${extra}&order_by=$2"; shift 2 ;;
+                    --fields)  extra="${extra}&fields=$2"; shift 2 ;;
+                    *)         break ;;
+                esac
+            done
+            plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/?${extra#&}" | jq '.' ;;
+
+        work-item)
+            local ws="${1:?Usage: tagbag plane work-item <workspace> <project-id|PROJ-123> <id>}"
+            local second="$2"
+            # Support PROJ-123 shorthand (workspace-level lookup)
+            if [[ "$second" =~ ^[A-Z]+-[0-9]+$ ]]; then
+                plane_api GET "/workspaces/${ws}/work-items/${second}/" | jq '.'
+            else
+                local proj="$second"
+                local iid="${3:?}"
+                plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/" | jq '.'
+            fi
+            ;;
+
+        search)
+            local ws="${1:?Usage: tagbag plane search <workspace> --query TEXT}"
+            shift
+            local query="" limit="20"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --query|-q) query="$2"; shift 2 ;;
+                    --limit)    limit="$2"; shift 2 ;;
+                    *)          die "Unknown option: $1" ;;
+                esac
+            done
+            [[ -n "$query" ]] || die "--query is required"
+            plane_api GET "/workspaces/${ws}/work-items/search/?search=$(printf '%s' "$query" | jq -sRr @uri)&limit=${limit}" | jq '.' ;;
+
+        create-work-item)
+            local ws="${1:?Usage: tagbag plane create-work-item <workspace> <project-id> --name ...}"
+            local proj="${2:?}"
+            shift 2
+            local name="" desc="" priority="" state="" assignees="[]" labels="[]"
+            local -a assignee_arr=() label_arr=()
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --name)       name="$2"; shift 2 ;;
+                    --description) desc="$2"; shift 2 ;;
+                    --priority)   priority="$2"; shift 2 ;;
+                    --state)      state="$2"; shift 2 ;;
+                    --assignee)   assignee_arr+=("\"$2\""); shift 2 ;;
+                    --label)      label_arr+=("\"$2\""); shift 2 ;;
+                    --)           shift; break ;;
+                    *)            die "Unknown option: $1" ;;
+                esac
+            done
+            [[ -n "$name" ]] || die "--name is required"
+            if [[ ${#assignee_arr[@]} -gt 0 ]]; then
+                assignees="[$(IFS=,; echo "${assignee_arr[*]}")]"
+            fi
+            if [[ ${#label_arr[@]} -gt 0 ]]; then
+                labels="[$(IFS=,; echo "${label_arr[*]}")]"
+            fi
+            local body
+            body=$(jq -n \
+                --arg name "$name" \
+                --arg desc "$desc" \
+                --arg priority "$priority" \
+                --arg state "$state" \
+                --argjson assignees "$assignees" \
+                --argjson labels "$labels" \
+                '{name: $name} +
+                 (if $desc != "" then {description_html: $desc} else {} end) +
+                 (if $priority != "" then {priority: $priority} else {} end) +
+                 (if $state != "" then {state: $state} else {} end) +
+                 (if ($assignees | length) > 0 then {assignees: $assignees} else {} end) +
+                 (if ($labels | length) > 0 then {labels: $labels} else {} end)')
+            plane_api POST "/workspaces/${ws}/projects/${proj}/work-items/" -d "$body" | jq '.' ;;
+
+        update-work-item)
+            local ws="${1:?Usage: tagbag plane update-work-item <workspace> <project-id> <id> --name ...}"
+            local proj="${2:?}"
+            local iid="${3:?}"
+            shift 3
+            local body="{}"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --name)        body=$(echo "$body" | jq --arg v "$2" '. + {name: $v}'); shift 2 ;;
+                    --description) body=$(echo "$body" | jq --arg v "$2" '. + {description_html: $v}'); shift 2 ;;
+                    --priority)    body=$(echo "$body" | jq --arg v "$2" '. + {priority: $v}'); shift 2 ;;
+                    --state)       body=$(echo "$body" | jq --arg v "$2" '. + {state: $v}'); shift 2 ;;
+                    --)            shift; break ;;
+                    *)             die "Unknown option: $1" ;;
+                esac
+            done
+            plane_api PATCH "/workspaces/${ws}/projects/${proj}/work-items/${iid}/" -d "$body" | jq '.' ;;
+
+        delete-work-item)
+            local ws="${1:?Usage: tagbag plane delete-work-item <workspace> <project-id> <id>}"
+            local proj="${2:?}"
+            local iid="${3:?}"
+            plane_api DELETE "/workspaces/${ws}/projects/${proj}/work-items/${iid}/" ;;
+
+        states)
+            local ws="${1:?Usage: tagbag plane states <workspace> <project-id>}"
+            local proj="${2:?}"
+            plane_api GET "/workspaces/${ws}/projects/${proj}/states/" | jq '.' ;;
+
+        labels)
+            local ws="${1:?Usage: tagbag plane labels <workspace> <project-id>}"
+            local proj="${2:?}"
+            plane_api GET "/workspaces/${ws}/projects/${proj}/labels/" | jq '.' ;;
+
+        cycles)
+            local ws="${1:?Usage: tagbag plane cycles <workspace> <project-id>}"
+            local proj="${2:?}"
+            plane_api GET "/workspaces/${ws}/projects/${proj}/cycles/" | jq '.' ;;
+
+        modules)
+            local ws="${1:?Usage: tagbag plane modules <workspace> <project-id>}"
+            local proj="${2:?}"
+            plane_api GET "/workspaces/${ws}/projects/${proj}/modules/" | jq '.' ;;
+
+        members)
+            local ws="${1:?Usage: tagbag plane members <workspace-slug>}"
+            plane_api GET "/workspaces/${ws}/members/" | jq '.' ;;
+
+        comments)
+            local ws="${1:?Usage: tagbag plane comments <workspace> <project-id> <work-item-id>}"
+            local proj="${2:?}"
+            local iid="${3:?}"
+            plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/comments/" | jq '.' ;;
+
+        add-comment)
+            local ws="${1:?Usage: tagbag plane add-comment <workspace> <project-id> <work-item-id> --body TEXT}"
+            local proj="${2:?}"
+            local iid="${3:?}"
+            shift 3
+            local body_text=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --body) body_text="$2"; shift 2 ;;
+                    *)      die "Unknown option: $1" ;;
+                esac
+            done
+            [[ -n "$body_text" ]] || die "--body is required"
+            local payload
+            payload=$(jq -n --arg b "$body_text" '{comment_html: $b}')
+            plane_api POST "/workspaces/${ws}/projects/${proj}/work-items/${iid}/comments/" -d "$payload" | jq '.' ;;
+
+        activities)
+            local ws="${1:?Usage: tagbag plane activities <workspace> <project-id> <work-item-id>}"
+            local proj="${2:?}"
+            local iid="${3:?}"
+            plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/activities/" | jq '.' ;;
+
+        *) die "Unknown plane subcommand: $subcmd. Run 'tagbag plane --help'." ;;
+    esac
+}
+
+# ─── Gitea Commands (wraps tea CLI) ─────────────────────────────────────────
+
+gitea_help() {
+    cat <<'EOF'
+tagbag gitea — Gitea commands (wraps tea CLI + raw API)
+
+Usage: tagbag gitea <subcommand> [args...] [-- tea-args]
+
+Subcommands:
+  repos                   List repos
+  repo <owner/name>       Get repo details
+  create-repo [opts]      Create a repo
+    --name NAME           Repo name (required)
+    --description DESC    Description
+    --private             Make private
+  prs <owner/repo>        List pull requests
+  pr <owner/repo> <num>   Get PR details
+  create-pr <owner/repo> [opts]
+                          Create a pull request
+    --title TITLE         PR title (required)
+    --body BODY           PR description
+    --head BRANCH         Head branch (required)
+    --base BRANCH         Base branch (default: main)
+  merge-pr <owner/repo> <num> [--method merge|rebase|squash]
+                          Merge a pull request
+  issues <owner/repo>     List issues
+  webhooks <owner/repo>   List webhooks
+  orgs                    List organizations
+  users                   List users (admin)
+  tea [args...]           Pass-through to tea CLI
+  api <method> <path> [curl-args...]
+                          Raw Gitea API call
+
+Everything after -- is passed directly to tea.
+EOF
+}
+
+cmd_gitea() {
+    local subcmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        help|--help|-h) gitea_help ;;
+
+        repos)
+            gitea_api GET "/user/repos" | jq '.[] | {full_name, html_url, private, updated_at}' ;;
+
+        repo)
+            local repo="${1:?Usage: tagbag gitea repo <owner/name>}"
+            gitea_api GET "/repos/${repo}" | jq '.' ;;
+
+        create-repo)
+            local name="" desc="" private="false"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --name)        name="$2"; shift 2 ;;
+                    --description) desc="$2"; shift 2 ;;
+                    --private)     private="true"; shift ;;
+                    *)             die "Unknown option: $1" ;;
+                esac
+            done
+            [[ -n "$name" ]] || die "--name is required"
+            local body
+            body=$(jq -n --arg n "$name" --arg d "$desc" --argjson p "$private" \
+                '{name: $n, description: $d, private: $p}')
+            gitea_api POST "/user/repos" -d "$body" | jq '{full_name, html_url, clone_url, ssh_url}' ;;
+
+        prs)
+            local repo="${1:?Usage: tagbag gitea prs <owner/repo>}"
+            gitea_api GET "/repos/${repo}/pulls?state=open" | jq '.[] | {number, title, user: .user.login, head: .head.ref, base: .base.ref, state}' ;;
+
+        pr)
+            local repo="${1:?Usage: tagbag gitea pr <owner/repo> <number>}"
+            local num="${2:?}"
+            gitea_api GET "/repos/${repo}/pulls/${num}" | jq '.' ;;
+
+        create-pr)
+            local repo="${1:?Usage: tagbag gitea create-pr <owner/repo> --title ... --head ...}"
+            shift
+            local title="" body="" head="" base="main"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --title) title="$2"; shift 2 ;;
+                    --body)  body="$2"; shift 2 ;;
+                    --head)  head="$2"; shift 2 ;;
+                    --base)  base="$2"; shift 2 ;;
+                    --)      shift; break ;;
+                    *)       die "Unknown option: $1" ;;
+                esac
+            done
+            [[ -n "$title" ]] || die "--title is required"
+            [[ -n "$head" ]] || die "--head is required"
+            local payload
+            payload=$(jq -n --arg t "$title" --arg b "$body" --arg h "$head" --arg ba "$base" \
+                '{title: $t, body: $b, head: $h, base: $ba}')
+            gitea_api POST "/repos/${repo}/pulls" -d "$payload" | jq '{number, title, html_url}' ;;
+
+        merge-pr)
+            local repo="${1:?Usage: tagbag gitea merge-pr <owner/repo> <number>}"
+            local num="${2:?}"
+            shift 2
+            local method="merge"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --method) method="$2"; shift 2 ;;
+                    *)        die "Unknown option: $1" ;;
+                esac
+            done
+            local payload
+            payload=$(jq -n --arg m "$method" '{Do: $m}')
+            gitea_api POST "/repos/${repo}/pulls/${num}/merge" -d "$payload" | jq '.' ;;
+
+        issues)
+            local repo="${1:?Usage: tagbag gitea issues <owner/repo>}"
+            gitea_api GET "/repos/${repo}/issues?type=issues&state=open" | jq '.[] | {number, title, user: .user.login, state, labels: [.labels[].name]}' ;;
+
+        webhooks)
+            local repo="${1:?Usage: tagbag gitea webhooks <owner/repo>}"
+            gitea_api GET "/repos/${repo}/hooks" | jq '.' ;;
+
+        orgs)
+            gitea_api GET "/user/orgs" | jq '.[] | {username, full_name, description}' ;;
+
+        users)
+            gitea_api GET "/admin/users" | jq '.[] | {id, login, email, is_admin}' ;;
+
+        tea)
+            exec tea "$@" ;;
+
+        api)
+            local method="${1:?Usage: tagbag gitea api <METHOD> <path> [curl-args...]}"
+            local path="${2:?}"
+            shift 2
+            gitea_api "$method" "$path" "$@" | jq '.' 2>/dev/null || true ;;
+
+        *) die "Unknown gitea subcommand: $subcmd. Run 'tagbag gitea --help'." ;;
+    esac
+}
+
+# ─── Woodpecker CI Commands (wraps woodpecker-cli + raw API) ────────────────
+
+ci_help() {
+    cat <<'EOF'
+tagbag ci — Woodpecker CI commands (wraps woodpecker-cli + raw API)
+
+Usage: tagbag ci <subcommand> [args...] [-- woodpecker-cli-args]
+
+Subcommands:
+  repos                   List activated repos
+  repo <owner/name>       Get repo details
+  activate <owner/name>   Activate a repo
+  pipelines <owner/name>  List pipelines
+  pipeline <owner/name> <num>
+                          Get pipeline details
+  logs <owner/name> <pipeline> <step>
+                          Get step logs
+  trigger <owner/name> [--branch BRANCH]
+                          Trigger a pipeline
+  stop <owner/name> <pipeline>
+                          Stop a pipeline
+  secrets <owner/name>    List repo secrets
+  add-secret <owner/name> --name NAME --value VALUE
+                          Add a repo secret
+  rm-secret <owner/name> <secret-name>
+                          Remove a repo secret
+  info                    Server info
+  wp [args...]            Pass-through to woodpecker-cli
+  api <method> <path> [curl-args...]
+                          Raw Woodpecker API call
+
+Everything after -- is passed directly to woodpecker-cli.
+EOF
+}
+
+cmd_ci() {
+    local subcmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        help|--help|-h) ci_help ;;
+
+        repos)
+            woodpecker_api GET "/user/repos" | jq '.[] | {id, full_name, active}' ;;
+
+        repo)
+            local repo="${1:?Usage: tagbag ci repo <owner/name>}"
+            woodpecker_api GET "/repos/lookup/${repo}" | jq '.' ;;
+
+        activate)
+            local repo="${1:?Usage: tagbag ci activate <owner/name>}"
+            woodpecker_api POST "/repos" -d "$(jq -n --arg f "$repo" '{forge_remote_id: $f}')" | jq '.' ;;
+
+        pipelines)
+            local repo="${1:?Usage: tagbag ci pipelines <owner/name>}"
+            local repo_id
+            repo_id=$(woodpecker_api GET "/repos/lookup/${repo}" | jq -r '.id')
+            woodpecker_api GET "/repos/${repo_id}/pipelines" | jq '.[] | {number, status, event, branch: .branch, message: .message}' ;;
+
+        pipeline)
+            local repo="${1:?}"
+            local num="${2:?Usage: tagbag ci pipeline <owner/name> <number>}"
+            local repo_id
+            repo_id=$(woodpecker_api GET "/repos/lookup/${repo}" | jq -r '.id')
+            woodpecker_api GET "/repos/${repo_id}/pipelines/${num}" | jq '.' ;;
+
+        logs)
+            local repo="${1:?}"
+            local pipeline="${2:?}"
+            local step="${3:?Usage: tagbag ci logs <owner/name> <pipeline> <step>}"
+            local repo_id
+            repo_id=$(woodpecker_api GET "/repos/lookup/${repo}" | jq -r '.id')
+            woodpecker_api GET "/repos/${repo_id}/logs/${pipeline}/${step}" | jq -r '.[].data' ;;
+
+        trigger)
+            local repo="${1:?Usage: tagbag ci trigger <owner/name>}"
+            shift
+            local branch="main"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --branch) branch="$2"; shift 2 ;;
+                    *)        die "Unknown option: $1" ;;
+                esac
+            done
+            local repo_id
+            repo_id=$(woodpecker_api GET "/repos/lookup/${repo}" | jq -r '.id')
+            woodpecker_api POST "/repos/${repo_id}/pipelines" -d "$(jq -n --arg b "$branch" '{branch: $b}')" | jq '{number, status, event}' ;;
+
+        stop)
+            local repo="${1:?}"
+            local num="${2:?Usage: tagbag ci stop <owner/name> <pipeline-number>}"
+            local repo_id
+            repo_id=$(woodpecker_api GET "/repos/lookup/${repo}" | jq -r '.id')
+            woodpecker_api POST "/repos/${repo_id}/pipelines/${num}/cancel" | jq '.' ;;
+
+        secrets)
+            local repo="${1:?Usage: tagbag ci secrets <owner/name>}"
+            local repo_id
+            repo_id=$(woodpecker_api GET "/repos/lookup/${repo}" | jq -r '.id')
+            woodpecker_api GET "/repos/${repo_id}/secrets" | jq '.[] | {name, event}' ;;
+
+        add-secret)
+            local repo="${1:?Usage: tagbag ci add-secret <owner/name> --name NAME --value VALUE}"
+            shift
+            local name="" value=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --name)  name="$2"; shift 2 ;;
+                    --value) value="$2"; shift 2 ;;
+                    *)       die "Unknown option: $1" ;;
+                esac
+            done
+            [[ -n "$name" ]] || die "--name required"
+            [[ -n "$value" ]] || die "--value required"
+            local repo_id
+            repo_id=$(woodpecker_api GET "/repos/lookup/${repo}" | jq -r '.id')
+            woodpecker_api POST "/repos/${repo_id}/secrets" \
+                -d "$(jq -n --arg n "$name" --arg v "$value" '{name: $n, value: $v, event: ["push","pull_request","tag","deployment"]}')" | jq '.' ;;
+
+        rm-secret)
+            local repo="${1:?}"
+            local name="${2:?Usage: tagbag ci rm-secret <owner/name> <secret-name>}"
+            local repo_id
+            repo_id=$(woodpecker_api GET "/repos/lookup/${repo}" | jq -r '.id')
+            woodpecker_api DELETE "/repos/${repo_id}/secrets/${name}" ;;
+
+        info)
+            woodpecker_api GET "/version" | jq '.' ;;
+
+        wp)
+            exec woodpecker-cli "$@" ;;
+
+        api)
+            local method="${1:?Usage: tagbag ci api <METHOD> <path> [curl-args...]}"
+            local path="${2:?}"
+            shift 2
+            woodpecker_api "$method" "$path" "$@" | jq '.' 2>/dev/null || true ;;
+
+        *) die "Unknown ci subcommand: $subcmd. Run 'tagbag ci --help'." ;;
+    esac
+}
+
+# ─── Docker Compose Commands ────────────────────────────────────────────────
+
+cmd_status() {
+    local compose_dir
+    compose_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    echo -e "${BOLD}TagBag Service Status${NC}"
+    echo ""
+    docker compose -f "${compose_dir}/docker-compose.yml" ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || \
+        warn "Docker compose not running or not available"
+    echo ""
+    echo -e "${BOLD}Endpoints:${NC}"
+    echo "  Gitea (PRs):       http://localhost:${GITEA_HTTP_PORT:-3000}"
+    echo "  Plane (Issues):    http://localhost:${LISTEN_HTTP_PORT:-8080}"
+    echo "  Woodpecker (CI):   http://localhost:9080"
+    echo "  PostgreSQL:        localhost:5432"
+}
+
+cmd_up() {
+    local compose_dir
+    compose_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    info "Starting TagBag services..."
+    docker compose -f "${compose_dir}/docker-compose.yml" up -d "$@"
+}
+
+cmd_down() {
+    local compose_dir
+    compose_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    info "Stopping TagBag services..."
+    docker compose -f "${compose_dir}/docker-compose.yml" down "$@"
+}
+
+cmd_build() {
+    local compose_dir
+    compose_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    info "Building TagBag services..."
+    docker compose -f "${compose_dir}/docker-compose.yml" build "$@"
+}
+
+cmd_logs() {
+    local compose_dir
+    compose_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    docker compose -f "${compose_dir}/docker-compose.yml" logs -f "$@"
+}
+
+# ─── Login Command ───────────────────────────────────────────────────────────
+
+CREDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tagbag"
+CREDS_FILE="${CREDS_DIR}/credentials.json"
+
+load_credentials() {
+    if [[ -f "$CREDS_FILE" ]]; then
+        [[ -z "$GITEA_TOKEN" ]] && GITEA_TOKEN=$(jq -r '.gitea_token // empty' "$CREDS_FILE" 2>/dev/null)
+        [[ -z "$PLANE_API_TOKEN" ]] && PLANE_API_TOKEN=$(jq -r '.plane_token // empty' "$CREDS_FILE" 2>/dev/null)
+        [[ -z "$WOODPECKER_TOKEN" ]] && WOODPECKER_TOKEN=$(jq -r '.woodpecker_token // empty' "$CREDS_FILE" 2>/dev/null)
+    fi
+}
+
+save_credentials() {
+    mkdir -p "$CREDS_DIR"
+    jq -n \
+        --arg g "${GITEA_TOKEN}" \
+        --arg p "${PLANE_API_TOKEN}" \
+        --arg w "${WOODPECKER_TOKEN}" \
+        --arg gu "${GITEA_URL}" \
+        --arg pu "${PLANE_URL}" \
+        --arg wu "${WOODPECKER_URL}" \
+        '{gitea_token: $g, plane_token: $p, woodpecker_token: $w, gitea_url: $gu, plane_url: $pu, woodpecker_url: $wu}' \
+        > "$CREDS_FILE"
+    chmod 600 "$CREDS_FILE"
+    info "Credentials saved to ${CREDS_FILE}"
+}
+
+cmd_login() {
+    cat <<'EOF'
+tagbag login — configure tokens for all three services
+
+EOF
+    echo -e "${BOLD}Step 1: Gitea token${NC}"
+    echo "  Create at: ${GITEA_URL}/user/settings/applications"
+    echo "  Scopes: write:repository, write:issue, read:organization, read:user"
+    echo ""
+    read -rp "  Gitea token: " GITEA_TOKEN
+    if [[ -n "$GITEA_TOKEN" ]]; then
+        local user
+        user=$(curl -sf -H "Authorization: token $GITEA_TOKEN" "${GITEA_URL}/api/v1/user" | jq -r '.login // empty')
+        if [[ -n "$user" ]]; then
+            echo -e "  ${GREEN}Authenticated as: ${user}${NC}"
+        else
+            warn "Could not verify Gitea token (is Gitea running?)"
+        fi
+    fi
+
+    echo ""
+    echo -e "${BOLD}Step 2: Plane API token${NC}"
+    echo "  Create at: ${PLANE_URL} → Workspace Settings → API Tokens"
+    echo ""
+    read -rp "  Plane API token: " PLANE_API_TOKEN
+    if [[ -n "$PLANE_API_TOKEN" ]]; then
+        local plane_user
+        plane_user=$(curl -sf -H "X-Api-Key: $PLANE_API_TOKEN" "${PLANE_URL}/api/v1/users/me/" | jq -r '.display_name // empty')
+        if [[ -n "$plane_user" ]]; then
+            echo -e "  ${GREEN}Authenticated as: ${plane_user}${NC}"
+        else
+            warn "Could not verify Plane token (is Plane running?)"
+        fi
+    fi
+
+    echo ""
+    echo -e "${BOLD}Step 3: Woodpecker token${NC}"
+    echo "  Create at: ${WOODPECKER_URL} → User icon → Personal Access Token"
+    echo "  (Log in via Gitea OAuth first)"
+    echo ""
+    read -rp "  Woodpecker token: " WOODPECKER_TOKEN
+    if [[ -n "$WOODPECKER_TOKEN" ]]; then
+        local wp_user
+        wp_user=$(curl -sf -H "Authorization: Bearer $WOODPECKER_TOKEN" "${WOODPECKER_URL}/api/user" | jq -r '.login // empty')
+        if [[ -n "$wp_user" ]]; then
+            echo -e "  ${GREEN}Authenticated as: ${wp_user}${NC}"
+        else
+            warn "Could not verify Woodpecker token (is Woodpecker running?)"
+        fi
+    fi
+
+    echo ""
+    save_credentials
+
+    echo ""
+    echo -e "${BOLD}Done!${NC} Tokens stored in ${CREDS_FILE}"
+    echo ""
+    echo "You can also export them in your shell:"
+    echo "  export GITEA_TOKEN=\"${GITEA_TOKEN}\""
+    echo "  export PLANE_API_TOKEN=\"${PLANE_API_TOKEN}\""
+    echo "  export WOODPECKER_TOKEN=\"${WOODPECKER_TOKEN}\""
+}
+
+cmd_whoami() {
+    echo -e "${BOLD}TagBag Identity${NC}"
+    echo ""
+    if [[ -n "$GITEA_TOKEN" ]]; then
+        local g
+        g=$(curl -sf -H "Authorization: token $GITEA_TOKEN" "${GITEA_URL}/api/v1/user" 2>/dev/null | jq -r '"\(.login) <\(.email)>"' 2>/dev/null)
+        echo "  Gitea:      ${g:-not authenticated}"
+    else
+        echo "  Gitea:      no token"
+    fi
+    if [[ -n "$PLANE_API_TOKEN" ]]; then
+        local p
+        p=$(curl -sf -H "X-Api-Key: $PLANE_API_TOKEN" "${PLANE_URL}/api/v1/users/me/" 2>/dev/null | jq -r '.display_name // empty' 2>/dev/null)
+        echo "  Plane:      ${p:-not authenticated}"
+    else
+        echo "  Plane:      no token"
+    fi
+    if [[ -n "$WOODPECKER_TOKEN" ]]; then
+        local w
+        w=$(curl -sf -H "Authorization: Bearer $WOODPECKER_TOKEN" "${WOODPECKER_URL}/api/user" 2>/dev/null | jq -r '.login // empty' 2>/dev/null)
+        echo "  Woodpecker: ${w:-not authenticated}"
+    else
+        echo "  Woodpecker: no token"
+    fi
+}
+
+# ─── Main ────────────────────────────────────────────────────────────────────
+
+main() {
+    # Parse global options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --plane-url)       PLANE_URL="$2"; shift 2 ;;
+            --plane-token)     PLANE_API_TOKEN="$2"; shift 2 ;;
+            --gitea-url)       GITEA_URL="$2"; shift 2 ;;
+            --gitea-token)     GITEA_TOKEN="$2"; shift 2 ;;
+            --woodpecker-url)  WOODPECKER_URL="$2"; shift 2 ;;
+            --woodpecker-token) WOODPECKER_TOKEN="$2"; shift 2 ;;
+            --json)            OUTPUT_JSON=true; shift ;;
+            --quiet|-q)        QUIET=true; shift ;;
+            --help|-h)         show_help; exit 0 ;;
+            --)                shift; break ;;
+            -*)                die "Unknown global option: $1" ;;
+            *)                 break ;;
+        esac
+    done
+
+    # Load saved credentials (env vars take precedence)
+    load_credentials
+
+    local cmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    case "$cmd" in
+        help|--help|-h) show_help ;;
+        login)          cmd_login ;;
+        whoami)         cmd_whoami ;;
+        status)         cmd_status ;;
+        up)             cmd_up "$@" ;;
+        down)           cmd_down "$@" ;;
+        build)          cmd_build "$@" ;;
+        logs)           cmd_logs "$@" ;;
+        plane)          cmd_plane "$@" ;;
+        gitea)          cmd_gitea "$@" ;;
+        ci)             cmd_ci "$@" ;;
+        *)              die "Unknown command: $cmd. Run 'tagbag --help'." ;;
+    esac
+}
+
+main "$@"

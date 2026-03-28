@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Pre-commit hook: lint CLI, validate compose, check version
+set -euo pipefail
+
+echo "pre-commit: checking..."
+
+# Lint bash scripts if shellcheck is available
+if command -v shellcheck &>/dev/null; then
+    shellcheck cli/tagbag scripts/*.sh setup.sh docker/init-db.sh 2>/dev/null || {
+        echo "pre-commit: shellcheck failed"
+        exit 1
+    }
+    echo "  shellcheck: ok"
+else
+    echo "  shellcheck: skipped (not installed)"
+fi
+
+# Validate docker-compose if docker is available
+if command -v docker &>/dev/null; then
+    docker compose config --quiet 2>/dev/null || {
+        echo "pre-commit: docker-compose validation failed"
+        exit 1
+    }
+    echo "  docker-compose: ok"
+else
+    echo "  docker: skipped (not installed)"
+fi
+
+# Check VERSION format
+version=$(cat VERSION 2>/dev/null | tr -d '[:space:]')
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "pre-commit: invalid VERSION format: '$version'"
+    exit 1
+fi
+echo "  version: $version ok"
+
+# CLI smoke test
+./cli/tagbag --help >/dev/null 2>&1 || {
+    echo "pre-commit: cli/tagbag --help failed"
+    exit 1
+}
+echo "  cli: ok"
+
+echo "pre-commit: all checks passed"

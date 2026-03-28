@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        default: "minor"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag and release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need full history for tag listing
+          submodules: recursive
+
+      - name: Determine next version
+        id: version
+        run: |
+          set -euo pipefail
+
+          # Get latest semver tag, default to v0.0.0 if none exists
+          latest=$(git tag -l 'v*' --sort=-version:refname | head -n1)
+          latest="${latest:-v0.0.0}"
+          echo "Latest tag: $latest"
+
+          # Strip leading 'v' and split
+          IFS='.' read -r major minor patch <<< "${latest#v}"
+
+          case "${{ github.event.inputs.bump }}" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+
+          next="v${major}.${minor}.${patch}"
+          echo "Next version: $next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.version }}" -m "Release ${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}"
+
+      - name: Build release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+
+          # Find the previous tag
+          prev=$(git tag -l 'v*' --sort=-version:refname | grep -v "^${version}$" | head -n1)
+
+          if [[ -n "$prev" ]]; then
+            range="${prev}..${version}"
+          else
+            range="${version}"
+          fi
+
+          {
+            echo "notes<<RELEASE_EOF"
+            echo "## What's Changed"
+            echo ""
+            git log "$range" --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "- Initial release"
+            echo ""
+            echo ""
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${prev:-initial}...${version}"
+            echo "RELEASE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            --title "${{ steps.version.outputs.version }}" \
+            --notes "${{ steps.notes.outputs.notes }}"

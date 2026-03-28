@@ -1,0 +1,308 @@
+services:
+
+  # ===========================================================================
+  # Shared Infrastructure
+  # ===========================================================================
+
+  postgres:
+    image: postgres:15.7-alpine
+    restart: always
+    command: postgres -c 'max_connections=1000'
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - tagbag
+
+  # ===========================================================================
+  # Gitea — Git hosting, Pull Requests, Code Review
+  # Port 3000 (HTTP), 2222 (SSH)
+  # ===========================================================================
+
+  gitea:
+    build:
+      context: ./submodules/gitea
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - APP_NAME=TagBag Gitea
+      - RUN_MODE=prod
+      - DOMAIN=${GITEA_DOMAIN}
+      - HTTP_PORT=3000
+      - ROOT_URL=http://localhost:${GITEA_HTTP_PORT}
+      - SSH_PORT=${GITEA_SSH_PORT}
+      - SSH_LISTEN_PORT=22
+      - DB_TYPE=postgres
+      - DB_HOST=postgres:5432
+      - DB_NAME=${GITEA_DB_NAME}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWD=${POSTGRES_PASSWORD}
+      - INSTALL_LOCK=true
+      - SECRET_KEY=${GITEA_SECRET_KEY}
+      - DISABLE_REGISTRATION=false
+      - REQUIRE_SIGNIN_VIEW=false
+    volumes:
+      - gitea-data:/data
+    ports:
+      - "${GITEA_HTTP_PORT}:3000"
+      - "${GITEA_SSH_PORT}:22"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - tagbag
+
+  # ===========================================================================
+  # Plane — Issues, Project Management
+  # Port 8080 (via Caddy proxy)
+  # ===========================================================================
+
+  plane-web:
+    build:
+      context: ./submodules/plane
+      dockerfile: ./apps/web/Dockerfile.web
+      args:
+        DOCKER_BUILDKIT: 1
+    restart: always
+    depends_on:
+      - plane-api
+    networks:
+      - tagbag
+
+  plane-admin:
+    build:
+      context: ./submodules/plane
+      dockerfile: ./apps/admin/Dockerfile.admin
+      args:
+        DOCKER_BUILDKIT: 1
+    restart: always
+    depends_on:
+      - plane-api
+    networks:
+      - tagbag
+
+  plane-space:
+    build:
+      context: ./submodules/plane
+      dockerfile: ./apps/space/Dockerfile.space
+      args:
+        DOCKER_BUILDKIT: 1
+    restart: always
+    depends_on:
+      - plane-api
+    networks:
+      - tagbag
+
+  plane-api:
+    build:
+      context: ./submodules/plane/apps/api
+      dockerfile: Dockerfile.api
+      args:
+        DOCKER_BUILDKIT: 1
+    restart: always
+    command: ./bin/docker-entrypoint-api.sh
+    env_file:
+      - ./plane.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      plane-redis:
+        condition: service_started
+      plane-mq:
+        condition: service_started
+      plane-migrator:
+        condition: service_completed_successfully
+    networks:
+      - tagbag
+
+  plane-worker:
+    build:
+      context: ./submodules/plane/apps/api
+      dockerfile: Dockerfile.api
+      args:
+        DOCKER_BUILDKIT: 1
+    restart: always
+    command: ./bin/docker-entrypoint-worker.sh
+    env_file:
+      - ./plane.env
+    depends_on:
+      - plane-api
+    networks:
+      - tagbag
+
+  plane-beat:
+    build:
+      context: ./submodules/plane/apps/api
+      dockerfile: Dockerfile.api
+      args:
+        DOCKER_BUILDKIT: 1
+    restart: always
+    command: ./bin/docker-entrypoint-beat.sh
+    env_file:
+      - ./plane.env
+    depends_on:
+      - plane-api
+    networks:
+      - tagbag
+
+  plane-migrator:
+    build:
+      context: ./submodules/plane/apps/api
+      dockerfile: Dockerfile.api
+      args:
+        DOCKER_BUILDKIT: 1
+    restart: "no"
+    command: ./bin/docker-entrypoint-migrator.sh
+    env_file:
+      - ./plane.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      plane-redis:
+        condition: service_started
+    networks:
+      - tagbag
+
+  plane-live:
+    build:
+      context: ./submodules/plane
+      dockerfile: ./apps/live/Dockerfile.live
+      args:
+        DOCKER_BUILDKIT: 1
+    restart: always
+    depends_on:
+      - plane-api
+    networks:
+      - tagbag
+
+  plane-redis:
+    image: valkey/valkey:7.2.11-alpine
+    restart: always
+    volumes:
+      - redisdata:/data
+    networks:
+      - tagbag
+
+  plane-mq:
+    image: rabbitmq:3.13.6-management-alpine
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - tagbag
+
+  plane-minio:
+    image: minio/minio
+    restart: always
+    command: server /export --console-address ":9090"
+    volumes:
+      - uploads:/export
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY}
+    networks:
+      - tagbag
+
+  plane-proxy:
+    build:
+      context: ./submodules/plane/apps/proxy
+      dockerfile: Dockerfile.ce
+    restart: always
+    ports:
+      - "${LISTEN_HTTP_PORT}:80"
+    environment:
+      FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-5242880}
+      BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-uploads}
+    depends_on:
+      - plane-web
+      - plane-api
+      - plane-space
+      - plane-admin
+    networks:
+      - tagbag
+
+  # ===========================================================================
+  # Woodpecker CI — CI/CD Pipelines (GitHub Actions alternative)
+  # Port 9080 (HTTP)
+  # ===========================================================================
+
+  woodpecker-server:
+    build:
+      context: .
+      dockerfile: docker/woodpecker-server.Dockerfile
+    restart: always
+    environment:
+      - WOODPECKER_HOST=http://localhost:9080
+      - WOODPECKER_OPEN=true
+      - WOODPECKER_ADMIN=${WOODPECKER_ADMIN}
+      - WOODPECKER_DATABASE_DRIVER=postgres
+      - WOODPECKER_DATABASE_DATASOURCE=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${WOODPECKER_DB_NAME}?sslmode=disable
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_GITEA=true
+      - WOODPECKER_GITEA_URL=http://gitea:3000
+      - WOODPECKER_GITEA_CLIENT=${WOODPECKER_GITEA_CLIENT}
+      - WOODPECKER_GITEA_SECRET=${WOODPECKER_GITEA_SECRET}
+    volumes:
+      - woodpecker-data:/var/lib/woodpecker
+    ports:
+      - "9080:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      gitea:
+        condition: service_started
+    networks:
+      - tagbag
+
+  woodpecker-agent:
+    build:
+      context: ./submodules/woodpecker
+      dockerfile: docker/Dockerfile.agent.alpine.multiarch
+    restart: always
+    environment:
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_MAX_WORKFLOWS=2
+      - WOODPECKER_BACKEND=docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - woodpecker-server
+    networks:
+      - tagbag
+
+# =============================================================================
+# Volumes
+# =============================================================================
+
+volumes:
+  pgdata:
+  gitea-data:
+  redisdata:
+  rabbitmq_data:
+  uploads:
+  woodpecker-data:
+
+# =============================================================================
+# Networks
+# =============================================================================
+
+networks:
+  tagbag:
+    driver: bridge
