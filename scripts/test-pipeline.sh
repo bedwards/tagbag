@@ -6,7 +6,7 @@ set -euo pipefail
 GITEA_URL="http://localhost:3000"
 WOODPECKER_URL="http://localhost:9080"
 GITEA_USER="tagbag"
-GITEA_PASS="tagbag123"
+GITEA_PASS="${E2E_GITEA_PASS:?E2E_GITEA_PASS environment variable not set}"
 REPO_NAME="ci-test"
 FULL_REPO="${GITEA_USER}/${REPO_NAME}"
 TMPDIR_PREFIX="tagbag-e2e"
@@ -24,11 +24,21 @@ cleanup() {
     rm -rf "$CLONE_DIR"
     echo "Removed $CLONE_DIR"
   fi
-  # Delete the Gitea repo (ignore errors)
-  curl -sf -X DELETE \
-    -H "Authorization: token ${GITEA_TOKEN}" \
-    "${GITEA_URL}/api/v1/repos/${FULL_REPO}" >/dev/null 2>&1 || true
-  echo "Deleted Gitea repo ${FULL_REPO} (if it existed)"
+
+  # Delete Gitea resources if token was created
+  if [[ -n "${GITEA_TOKEN:-}" ]]; then
+    # Delete the Gitea repo (ignore errors)
+    curl -sf -X DELETE \
+      -H "Authorization: token ${GITEA_TOKEN}" \
+      "${GITEA_URL}/api/v1/repos/${FULL_REPO}" >/dev/null 2>&1 || true
+    echo "Deleted Gitea repo ${FULL_REPO} (if it existed)"
+
+    # Delete the Gitea token. This uses basic auth.
+    curl -sf -X DELETE -u "${GITEA_USER}:${GITEA_PASS}" \
+      "${GITEA_URL}/api/v1/users/${GITEA_USER}/tokens/e2e-pipeline-test" >/dev/null 2>&1 || true
+    echo "Deleted Gitea token e2e-pipeline-test (if it existed)"
+  fi
+
   exit "$exit_code"
 }
 trap cleanup EXIT
@@ -46,7 +56,7 @@ curl -sf -X DELETE -u "${GITEA_USER}:${GITEA_PASS}" \
 
 TOKEN_RESP=$(curl -sf -X POST -u "${GITEA_USER}:${GITEA_PASS}" \
   -H "Content-Type: application/json" \
-  -d '{"name":"e2e-pipeline-test","scopes":["all"]}' \
+  -d '{"name":"e2e-pipeline-test","scopes":["read:user", "read:repository", "write:repository"]}' \
   "${GITEA_URL}/api/v1/users/${GITEA_USER}/tokens")
 GITEA_TOKEN=$(echo "$TOKEN_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['sha1'])")
 echo "  Gitea token obtained."
@@ -77,7 +87,8 @@ echo "  Repo created."
 
 CLONE_DIR=$(mktemp -d "/tmp/${TMPDIR_PREFIX}.XXXXXX")
 echo "==> Cloning to ${CLONE_DIR}..."
-git clone -q "http://${GITEA_USER}:${GITEA_PASS}@localhost:3000/${FULL_REPO}.git" "$CLONE_DIR"
+git clone -q "http://localhost:3000/${FULL_REPO}.git" "$CLONE_DIR"
+git -C "$CLONE_DIR" config http.extraHeader "Authorization: token ${GITEA_TOKEN}"
 
 cat > "${CLONE_DIR}/.woodpecker.yaml" <<'YAML'
 steps:
