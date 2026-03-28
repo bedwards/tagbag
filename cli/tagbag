@@ -1101,9 +1101,9 @@ cmd_login() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --auto)        auto=true; shift ;;
-            --gitea-user)  gitea_user="$2"; shift 2 ;;
-            --gitea-pass)  gitea_pass="$2"; shift 2 ;;
-            --token-name)  token_name="$2"; shift 2 ;;
+            --gitea-user)  [[ -n "$2" && "$2" != --* ]] || die "Option '--gitea-user' requires an argument."; gitea_user="$2"; shift 2 ;;
+            --gitea-pass)  [[ -n "$2" && "$2" != --* ]] || die "Option '--gitea-pass' requires an argument."; gitea_pass="$2"; shift 2 ;;
+            --token-name)  [[ -n "$2" && "$2" != --* ]] || die "Option '--token-name' requires an argument."; token_name="$2"; shift 2 ;;
             *)             die "Unknown login option: $1" ;;
         esac
     done
@@ -1187,14 +1187,10 @@ cmd_login_auto() {
         "${GITEA_URL}/api/v1/users/${gitea_user}/tokens" \
         -u "${gitea_user}:${gitea_pass}" \
         -H 'Content-Type: application/json' \
-        -d "{\"name\":\"${token_name}\",\"scopes\":[\"all\"]}" 2>/dev/null) || true
+        -d "{\"name\":\"${token_name}\",\"scopes\":[\"write:repository\",\"write:issue\",\"read:organization\",\"read:user\"]}" 2>/dev/null) || true
 
     if [[ -n "$gitea_resp" ]]; then
-        GITEA_TOKEN=$(echo "$gitea_resp" | jq -r '.sha1 // empty')
-        if [[ -z "$GITEA_TOKEN" ]]; then
-            # Gitea 1.22+ uses .token instead of .sha1
-            GITEA_TOKEN=$(echo "$gitea_resp" | jq -r '.token // empty')
-        fi
+        GITEA_TOKEN=$(echo "$gitea_resp" | jq -r '.sha1 // .token // empty')
         if [[ -n "$GITEA_TOKEN" ]]; then
             echo -e "  ${GREEN}Gitea token created for user: ${gitea_user}${NC}"
         else
@@ -1209,10 +1205,7 @@ cmd_login_auto() {
     echo ""
     echo -e "${BOLD}Step 2: Plane API token${NC}"
 
-    local plane_setup
-    plane_setup=$(curl -sf "${PLANE_URL}/api/v1/users/me/" 2>/dev/null) || true
-
-    if [[ -n "$plane_setup" ]]; then
+    if curl -s "${PLANE_URL}/api/v1/users/me/" &>/dev/null; then
         # Plane is up, but we cannot create API tokens via the API without
         # an existing token or admin credentials. Check if a token is already
         # configured in the environment.
