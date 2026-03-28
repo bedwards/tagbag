@@ -229,6 +229,106 @@ export PLANE_API_TOKEN="..."
 export WOODPECKER_TOKEN="..."
 ```
 
+## Git Operations
+
+### clone
+
+Clone a Gitea repository by owner/repo shorthand.
+
+```bash
+tagbag clone <owner/repo> [path] [--ssh]
+```
+
+| Argument / Option | Description |
+|---|---|
+| `<owner/repo>` | Repository to clone (e.g. `bedwards/my-project`) |
+| `[path]` | Optional local directory to clone into (defaults to repo name) |
+| `--ssh` | Clone via SSH (`ssh://git@localhost:2222`) instead of HTTP |
+
+Examples:
+
+```bash
+tagbag clone bedwards/my-project                    # clone via HTTP to ./my-project
+tagbag clone bedwards/my-project ~/src/myproj       # clone to custom path
+tagbag clone bedwards/my-project --ssh              # clone via SSH (port 2222)
+```
+
+### web
+
+Open the TagBag dashboard in the default browser.
+
+```bash
+tagbag web
+```
+
+### push
+
+Push a local repository to Gitea, with options for GitHub mirroring.
+
+```bash
+tagbag push <owner/repo> [options]
+```
+
+| Option | Description |
+|---|---|
+| `--github` | Also push to GitHub |
+| `--create` | Create the remote repository if it doesn't exist |
+| `--private` | Make the created repository private |
+| `--mirror` | Set up a push mirror in Gitea for ongoing sync |
+| `--branch <name>` | Push only this branch (default: all branches) |
+| `--no-tags` | Don't push tags |
+
+Examples:
+
+```bash
+tagbag push bedwards/my-project --create --private   # create private repo and push
+tagbag push bedwards/my-project --github              # push to both Gitea and GitHub
+tagbag push bedwards/my-project --mirror              # set up as mirror
+tagbag push bedwards/my-project --branch main --no-tags  # push only main, skip tags
+```
+
+## Reviewer Commands (AI Code Review)
+
+The reviewer is an AI-powered code review service that watches Gitea push events and posts automated review comments on commits.
+
+```bash
+tagbag reviewer start                # start the reviewer service
+tagbag reviewer stop                 # stop the reviewer service
+tagbag reviewer status               # check if the reviewer is running
+tagbag reviewer logs                 # tail reviewer logs
+tagbag reviewer register             # register the Gitea webhook for PR events
+tagbag reviewer protect              # enable branch protection requiring reviewer approval
+```
+
+| Subcommand | Description |
+|---|---|
+| `start` | Start the reviewer container |
+| `stop` | Stop the reviewer container |
+| `status` | Show whether the reviewer is running and healthy |
+| `logs` | Tail the reviewer service logs |
+| `register` | Create a Gitea webhook on the current repo so the reviewer receives push events |
+| `protect` | Enable branch protection rules that require the reviewer's approval before merge |
+
+## Bridge Commands (Gitea-Plane Integration)
+
+The bridge links Gitea events (commits, PRs) to Plane work items. It parses commit messages and PRs for references like `PROJ-123` and adds comments and links to the corresponding work items in Plane.
+
+```bash
+tagbag bridge start                  # start the bridge service
+tagbag bridge stop                   # stop the bridge service
+tagbag bridge status                 # check if the bridge is running
+tagbag bridge logs                   # tail bridge logs
+tagbag bridge register               # register webhooks for sync
+```
+
+| Subcommand | Description |
+|---|---|
+| `start` | Start the bridge container |
+| `stop` | Stop the bridge container |
+| `status` | Show whether the bridge is running and healthy |
+| `logs` | Tail the bridge service logs |
+| `register` | Set up a Gitea webhook to send repository events to the bridge for Plane integration |
+
 ## Architecture
 
 The CLI is a bash script that:

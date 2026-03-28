@@ -2,15 +2,29 @@
 
 Self-hosted GitHub replacement. Built from source. All the keys to the castle.
 
+**Current version: v0.12.0**
+
 ## What
 
-Three forked open-source projects, one Docker Compose stack, one unified CLI.
+Three forked open-source projects, one Docker Compose stack, one unified CLI, one dashboard.
 
 | Service | Replaces | Port | Source |
 |---|---|---|---|
+| [TagBag Dashboard](http://localhost:8888) | Unified web UI | [localhost:8888](http://localhost:8888) | `web/index.html` |
 | [Gitea](https://gitea.io) | Code, PRs, Code Review | [localhost:3000](http://localhost:3000) | `submodules/gitea/` |
 | [Plane](https://plane.so) | Issues, Sprints, Projects | [localhost:8080](http://localhost:8080) | `submodules/plane/` |
 | [Woodpecker CI](https://woodpecker-ci.org) | Actions, CI/CD | [localhost:9080](http://localhost:9080) | `submodules/woodpecker/` |
+
+### Full Port Map
+
+| Port | Service |
+|---|---|
+| 3000 | Gitea (HTTP) |
+| 8080 | Plane |
+| 9080 | Woodpecker CI |
+| 8888 | TagBag Dashboard |
+| 5432 | PostgreSQL |
+| 2222 | Gitea SSH |
 
 All backed by PostgreSQL. Gitea is the OAuth2 identity provider for single sign-on.
 
@@ -30,16 +44,46 @@ First build takes a while (Go, Python, Node.js compiling from source). After tha
 ./cli/tagbag down                  # stop
 ```
 
+Open the dashboard at [localhost:8888](http://localhost:8888) for a unified view of code, issues, PRs, and CI.
+
 ## CLI
 
 ```bash
+# Identity
 ./cli/tagbag login                 # set up tokens for all three services
 ./cli/tagbag whoami                # show identity across services
 
+# Infrastructure
+./cli/tagbag status                # show all service status + endpoints
+./cli/tagbag up                    # docker compose up -d
+./cli/tagbag down                  # docker compose down
+./cli/tagbag build                 # rebuild all from source
+./cli/tagbag logs                  # tail all logs
+
+# Git operations
+./cli/tagbag clone <owner/repo>    # clone a Gitea repo
+./cli/tagbag web                   # open Gitea repo in browser
+./cli/tagbag push <owner/repo>     # push repo to Gitea (supports --github, --mirror)
+
+# Service CLIs
 ./cli/tagbag plane work-items ...  # issues, sprints, modules
 ./cli/tagbag gitea prs ...         # repos, pull requests, code review
 ./cli/tagbag ci pipelines ...      # CI/CD pipelines, secrets, logs
+
+# AI Code Review
+./cli/tagbag reviewer start|stop|status|logs|register|protect
+
+# GitHub-Gitea Bridge
+./cli/tagbag bridge start|stop|status|logs|register
 ```
+
+### Reviewer
+
+The **reviewer** is an AI-powered code review service. It watches Gitea push events, provides automated review comments on commits, and sets commit statuses. Use `tagbag reviewer register` to set up the webhook and `tagbag reviewer protect` to enforce reviews on branches.
+
+### Bridge
+
+The **bridge** links Gitea events to Plane work items. It parses commit messages and pull requests for references like `PROJ-123` and adds comments to the corresponding work items. Use `tagbag bridge register` to set up the webhook for a repository.
 
 Run `./cli/tagbag --help` for the full command tree. Every subcommand has `--help`.
 
