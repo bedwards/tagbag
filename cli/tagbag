@@ -395,6 +395,8 @@ Subcommands:
     --base BRANCH         Base branch (default: main)
   merge-pr <owner/repo> <num> [--method merge|rebase|squash]
                           Merge a pull request
+  clone-url <owner/repo> [--ssh]
+                          Get clone URL (HTTPS default, --ssh for SSH)
   issues <owner/repo>     List issues
   webhooks <owner/repo>   List webhooks
   orgs                    List organizations
