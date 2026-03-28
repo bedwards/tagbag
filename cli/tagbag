@@ -732,6 +732,7 @@ Subcommands:
   status                  Show reviewer status
   logs                    Tail reviewer logs
   register <owner/repo>   Register a Gitea repo webhook for review
+  protect <owner/repo>    Require reviewer pass for branch merges
 
 The reviewer listens for Gitea push webhooks, clones the repo,
 runs Claude Code for a thorough review, posts a comment, and
@@ -811,6 +812,22 @@ cmd_reviewer() {
             gitea_api POST "/repos/${repo}/hooks" \
                 -d "$(jq -n --arg url "$webhook_url" \
                     '{type:"gitea",active:true,config:{url:$url,content_type:"json"},events:["push"]}')" | jq '{id, url: .config.url, events, active}' ;;
+
+        protect)
+            local repo="${1:?Usage: tagbag reviewer protect <owner/repo> [--branch main]}"
+            shift
+            local branch="main"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --branch) branch="$2"; shift 2 ;;
+                    *)        break ;;
+                esac
+            done
+            require_gitea_token
+            info "Setting branch protection on ${repo}:${branch} (require tagbag-reviewer)..."
+            gitea_api POST "/repos/${repo}/branch_protections" \
+                -d "$(jq -n --arg b "$branch" \
+                    '{branch_name: $b, enable_status_check: true, status_check_contexts: ["tagbag-reviewer"], required_approvals: 0, enable_push: true}')" | jq '{branch_name, enable_status_check, status_check_contexts}' ;;
 
         *) die "Unknown reviewer subcommand: $subcmd. Run 'tagbag reviewer --help'." ;;
     esac
