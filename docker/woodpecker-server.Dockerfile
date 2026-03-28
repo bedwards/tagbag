@@ -1,16 +1,12 @@
 FROM --platform=$BUILDPLATFORM docker.io/golang:1.26 AS build
 
-# Install Node.js and pnpm for UI build
-RUN apt-get update && apt-get install -y nodejs npm && \
+# Install Node.js and pnpm for UI build (build-server depends on build-ui)
+RUN apt-get update && apt-get install -y nodejs npm git && \
     npm install -g pnpm@latest && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 COPY submodules/woodpecker/ .
-
-# Init a git repo so Makefile version detection works
-RUN git init && git add -A && git commit -m "build" --allow-empty
-
 ARG TARGETOS TARGETARCH CI_COMMIT_SHA CI_COMMIT_TAG CI_COMMIT_BRANCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
