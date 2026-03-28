@@ -255,7 +255,7 @@ tagbag clone bedwards/my-project --ssh              # clone via SSH (port 2222)
 
 ### web
 
-Open the current repository's Gitea page in the default browser. Must be run from within a Gitea-hosted git repo.
+Open the TagBag dashboard in the default browser.
 
 ```bash
 tagbag web
@@ -274,7 +274,7 @@ tagbag push <owner/repo> [options]
 | `--github` | Also push to GitHub |
 | `--create` | Create the remote repository if it doesn't exist |
 | `--private` | Make the created repository private |
-| `--mirror` | Set up as a mirror (read-only copy) |
+| `--mirror` | Set up a push mirror in Gitea for ongoing sync |
 | `--branch <name>` | Push only this branch (default: all branches) |
 | `--no-tags` | Don't push tags |
 
@@ -289,7 +289,7 @@ tagbag push bedwards/my-project --branch main --no-tags  # push only main, skip 
 
 ## Reviewer Commands (AI Code Review)
 
-The reviewer is an AI-powered code review service that watches Gitea pull requests and posts automated review comments.
+The reviewer is an AI-powered code review service that watches Gitea push events and posts automated review comments on commits.
 
 ```bash
 tagbag reviewer start                # start the reviewer service
@@ -306,12 +306,12 @@ tagbag reviewer protect              # enable branch protection requiring review
 | `stop` | Stop the reviewer container |
 | `status` | Show whether the reviewer is running and healthy |
 | `logs` | Tail the reviewer service logs |
-| `register` | Create a Gitea webhook on the current repo so the reviewer receives PR events |
+| `register` | Create a Gitea webhook on the current repo so the reviewer receives push events |
 | `protect` | Enable branch protection rules that require the reviewer's approval before merge |
 
-## Bridge Commands (GitHub-Gitea Sync)
+## Bridge Commands (Gitea-Plane Integration)
 
-The bridge syncs repositories between GitHub and Gitea, enabling automatic mirroring and bi-directional webhook forwarding.
+The bridge links Gitea events (commits, PRs) to Plane work items. It parses commit messages and PRs for references like `PROJ-123` and adds comments and links to the corresponding work items in Plane.
 
 ```bash
 tagbag bridge start                  # start the bridge service
@@ -327,7 +327,7 @@ tagbag bridge register               # register webhooks for sync
 | `stop` | Stop the bridge container |
 | `status` | Show whether the bridge is running and healthy |
 | `logs` | Tail the bridge service logs |
-| `register` | Set up webhooks on both GitHub and Gitea for automatic repository syncing |
+| `register` | Set up a Gitea webhook to send repository events to the bridge for Plane integration |
 
 ## Architecture
 

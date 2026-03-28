@@ -79,11 +79,11 @@ Open the dashboard at [localhost:8888](http://localhost:8888) for a unified view
 
 ### Reviewer
 
-The **reviewer** is an AI-powered code review service. It watches Gitea pull requests and provides automated review comments. Use `tagbag reviewer register` to set up the webhook and `tagbag reviewer protect` to enforce reviews on branches.
+The **reviewer** is an AI-powered code review service. It watches Gitea push events, provides automated review comments on commits, and sets commit statuses. Use `tagbag reviewer register` to set up the webhook and `tagbag reviewer protect` to enforce reviews on branches.
 
 ### Bridge
 
-The **bridge** syncs repositories between GitHub and Gitea. Use `tagbag bridge register` to set up the webhook for automatic mirroring.
+The **bridge** links Gitea events to Plane work items. It parses commit messages and pull requests for references like `PROJ-123` and adds comments to the corresponding work items. Use `tagbag bridge register` to set up the webhook for a repository.
 
 Run `./cli/tagbag --help` for the full command tree. Every subcommand has `--help`.
 
