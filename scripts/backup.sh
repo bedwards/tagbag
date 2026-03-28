@@ -14,7 +14,7 @@ KEEP_DAYS="${TAGBAG_BACKUP_RETAIN_DAYS:-30}"
 do_verify() {
   local backup_dir="${1:-./backups}"
   local latest
-  latest=$(find "${backup_dir}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n1)
+  latest=$(find_latest_backup "${backup_dir}")
 
   if [ -z "${latest}" ]; then
     echo "ERROR: No backups found in ${backup_dir}"
@@ -38,13 +38,28 @@ do_verify() {
   fi
 }
 
+# Helper: find latest backup directory
+find_latest_backup() {
+  local backup_dir="$1"
+  if [ ! -d "${backup_dir}" ]; then
+    echo "ERROR: Backup directory '${backup_dir}' does not exist" >&2
+    return 1
+  fi
+  find "${backup_dir}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n1
+}
+
+# Helper: run psql in the postgres container
+run_psql() {
+  docker compose exec -T -e PGPASSWORD="${PG_PASSWORD}" postgres psql -U "${PG_USER}" "$@"
+}
+
 # ---------------------------------------------------------------
 # --test-restore: restore latest backup into a temp DB and verify
 # ---------------------------------------------------------------
 do_test_restore() {
   local backup_dir="${1:-./backups}"
   local latest
-  latest=$(find "${backup_dir}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n1)
+  latest=$(find_latest_backup "${backup_dir}")
 
   if [ -z "${latest}" ]; then
     echo "ERROR: No backups found in ${backup_dir}"
@@ -69,14 +84,18 @@ do_test_restore() {
     exit 1
   fi
 
-  local test_db="tagbag_restore_test_$$"
+  local test_db
+  test_db="tagbag_restore_test_$(date +%s%N)"
   echo "  Using dump: ${dump_db}.dump"
   echo "  Temp database: ${test_db}"
 
+  # Ensure cleanup on exit/interrupt (expand test_db now, not at signal time)
+  # shellcheck disable=SC2064
+  trap "echo -e '\n  Cleaning up temp database...' && run_psql -c 'DROP DATABASE IF EXISTS ${test_db};' &>/dev/null || true" EXIT
+
   # Create temporary database
   echo "  Creating temp database..."
-  docker compose exec -T -e PGPASSWORD="${PG_PASSWORD}" postgres \
-    psql -U "${PG_USER}" -c "CREATE DATABASE ${test_db};" >/dev/null 2>&1
+  run_psql -c "CREATE DATABASE ${test_db};" >/dev/null 2>&1
 
   local restore_ok=true
 
@@ -94,23 +113,17 @@ do_test_restore() {
   # Verify data integrity: count tables
   echo "  Verifying data integrity..."
   local table_count
-  table_count=$(docker compose exec -T -e PGPASSWORD="${PG_PASSWORD}" postgres \
-    psql -U "${PG_USER}" -d "${test_db}" -t -c \
+  table_count=$(run_psql -d "${test_db}" -t -c \
     "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null \
     | tr -d '[:space:]')
 
-  if [ -n "${table_count}" ] && [ "${table_count}" -gt 0 ] 2>/dev/null; then
+  if [[ "${table_count}" =~ ^[0-9]+$ ]] && [ "${table_count}" -gt 0 ]; then
     echo "  Tables found: ${table_count}"
     echo "  Data integrity: OK"
   else
     echo "  WARNING: No tables found after restore — backup may be empty or corrupt."
     restore_ok=false
   fi
-
-  # Clean up: drop temporary database
-  echo "  Dropping temp database..."
-  docker compose exec -T -e PGPASSWORD="${PG_PASSWORD}" postgres \
-    psql -U "${PG_USER}" -c "DROP DATABASE IF EXISTS ${test_db};" >/dev/null 2>&1
 
   echo ""
   if [ "${restore_ok}" = true ]; then
