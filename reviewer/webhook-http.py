@@ -103,7 +103,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             if repo and sha:
                 enqueue(repo, sha, ref)
                 log(f"Webhook received: {repo} {sha} {ref}")
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, AttributeError) as e:
             log(f"WARNING: Failed to parse webhook payload: {e}")
 
     def do_GET(self):

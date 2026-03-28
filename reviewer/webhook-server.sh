@@ -54,7 +54,7 @@ process_queue() {
             line=$(flock "${REVIEW_QUEUE}.lock" bash -c '
                 head -1 "'"$REVIEW_QUEUE"'"
                 tail -n +2 "'"$REVIEW_QUEUE"'" > "'"$REVIEW_QUEUE"'.tmp" && mv "'"$REVIEW_QUEUE"'.tmp" "'"$REVIEW_QUEUE"'"
-            ' 2>/dev/null || head -1 "$REVIEW_QUEUE")
+            ')
             if [[ -n "$line" ]]; then
                 log "Processing: $line"
                 # shellcheck disable=SC2086

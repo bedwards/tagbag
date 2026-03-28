@@ -85,7 +85,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             json.loads(body)
             enqueue(event_type, body.decode("utf-8", errors="replace"))
             log(f"Webhook received: {event_type}")
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, AttributeError) as e:
             log(f"WARNING: Failed to parse webhook payload: {e}")
 
     def do_GET(self):

@@ -210,7 +210,7 @@ process_queue() {
             line=$(flock "${BRIDGE_QUEUE}.lock" bash -c '
                 head -1 "'"$BRIDGE_QUEUE"'"
                 tail -n +2 "'"$BRIDGE_QUEUE"'" > "'"$BRIDGE_QUEUE"'.tmp" && mv "'"$BRIDGE_QUEUE"'.tmp" "'"$BRIDGE_QUEUE"'"
-            ' 2>/dev/null || head -1 "$BRIDGE_QUEUE")
+            ')
             if [[ -n "$line" ]]; then
                 event_type=$(echo "$line" | cut -f1)
                 json_body=$(echo "$line" | cut -f2-)
