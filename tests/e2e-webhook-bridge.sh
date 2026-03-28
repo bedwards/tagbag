@@ -9,6 +9,7 @@ PLANE_URL="${PLANE_URL:-http://localhost:8080}"
 PLANE_TOKEN="${PLANE_TOKEN:-}"
 PLANE_WORKSPACE="${PLANE_WORKSPACE:-tagbag}"
 BRIDGE_URL="${BRIDGE_URL:-http://localhost:9877}"
+GITEA_WEBHOOK_SECRET="${GITEA_WEBHOOK_SECRET:-}"
 TEST_REPO="e2e-webhook-test"
 TEST_ORG="tagbag"
 
@@ -182,10 +183,18 @@ print(json.dumps({
 }))
 ")
 
+  # Compute HMAC-SHA256 signature if secret is set
+  SIG_ARGS=()
+  if [ -n "$GITEA_WEBHOOK_SECRET" ]; then
+    SIG=$(printf '%s' "$WEBHOOK_PAYLOAD" | openssl dgst -sha256 -hmac "$GITEA_WEBHOOK_SECRET" | sed 's/^.* //')
+    SIG_ARGS=(-H "X-Gitea-Signature: ${SIG}")
+  fi
+
   WEBHOOK_RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST \
     -H "Content-Type: application/json" \
     -H "X-Gitea-Event: push" \
+    "${SIG_ARGS[@]}" \
     -d "$WEBHOOK_PAYLOAD" \
     "${BRIDGE_URL}/webhook")
 

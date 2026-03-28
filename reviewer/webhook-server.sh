@@ -9,11 +9,33 @@ set -euo pipefail
 REVIEW_PORT="${TAGBAG_REVIEW_PORT:-9876}"
 REVIEW_QUEUE="${TAGBAG_CONFIG_DIR:-$HOME/.config/tagbag}/review-queue"
 REVIEW_LOG="${TAGBAG_CONFIG_DIR:-$HOME/.config/tagbag}/reviewer.log"
+GITEA_WEBHOOK_SECRET="${GITEA_WEBHOOK_SECRET:-}"
 
 mkdir -p "$(dirname "$REVIEW_QUEUE")"
 : > "$REVIEW_QUEUE"
 
 log() { echo "[$(date +%Y-%m-%dT%H:%M:%S)] $*" | tee -a "$REVIEW_LOG"; }
+
+# Verify HMAC-SHA256 webhook signature from Gitea
+verify_signature() {
+    local body="$1" signature="$2"
+    if [[ -z "$GITEA_WEBHOOK_SECRET" ]]; then
+        log "WARNING: GITEA_WEBHOOK_SECRET not set — skipping signature verification"
+        return 0
+    fi
+    if [[ -z "$signature" ]]; then
+        log "REJECTED: missing X-Gitea-Signature header"
+        return 1
+    fi
+    local expected
+    expected=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITEA_WEBHOOK_SECRET" | sed 's/^.* //')
+    # Constant-time comparison to prevent timing attacks
+    if [[ "$(printf '%s' "$expected" | openssl dgst -sha256)" != "$(printf '%s' "$signature" | openssl dgst -sha256)" ]]; then
+        log "REJECTED: invalid webhook signature"
+        return 1
+    fi
+    return 0
+}
 
 log "TagBag Code Reviewer starting on port ${REVIEW_PORT}"
 log "Queue: ${REVIEW_QUEUE}"
@@ -41,37 +63,45 @@ trap 'kill $QUEUE_PID 2>/dev/null; log "Reviewer stopped"' EXIT
 
 # Listen for webhooks
 while true; do
-    # Use a simple HTTP response
-    response="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"
-
-    # Read the webhook payload via a temp fifo
     tmpfifo=$(mktemp -u)
     mkfifo "$tmpfifo"
+    tmpresp=$(mktemp -u)
+    mkfifo "$tmpresp"
 
     # Listen for one connection
-    (echo -e "$response" | nc -l "$REVIEW_PORT" > "$tmpfifo" 2>/dev/null) &
+    (cat "$tmpresp" | nc -l "$REVIEW_PORT" > "$tmpfifo" 2>/dev/null) &
     NC_PID=$!
 
-    # Read the body
-    payload=""
-    if timeout 300 cat "$tmpfifo" 2>/dev/null; then
-        payload=$(cat "$tmpfifo" 2>/dev/null || true)
-    fi
+    # Read the raw request
+    payload=$(timeout 300 cat "$tmpfifo" 2>/dev/null || true)
     rm -f "$tmpfifo"
-    wait $NC_PID 2>/dev/null || true
 
     # Parse the payload — extract repo full_name and commit SHA
     if [[ -n "$payload" ]]; then
         # Try to extract JSON body (after the blank line in HTTP request)
         json_body=$(echo "$payload" | sed -n '/^\r*$/,$ p' | tail -n +2)
+        signature=$(echo "$payload" | grep -i "^X-Gitea-Signature:" | awk '{print $2}' | tr -d '\r\n')
+
         if [[ -n "$json_body" ]]; then
-            repo=$(echo "$json_body" | jq -r '.repository.full_name // empty' 2>/dev/null)
-            sha=$(echo "$json_body" | jq -r '.after // empty' 2>/dev/null)
-            ref=$(echo "$json_body" | jq -r '.ref // empty' 2>/dev/null)
-            if [[ -n "$repo" && -n "$sha" ]]; then
-                log "Webhook received: ${repo} ${sha} ${ref}"
-                echo "${repo} ${sha} ${ref}" >> "$REVIEW_QUEUE"
+            if verify_signature "$json_body" "$signature"; then
+                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
+                repo=$(echo "$json_body" | jq -r '.repository.full_name // empty' 2>/dev/null)
+                sha=$(echo "$json_body" | jq -r '.after // empty' 2>/dev/null)
+                ref=$(echo "$json_body" | jq -r '.ref // empty' 2>/dev/null)
+                if [[ -n "$repo" && -n "$sha" ]]; then
+                    log "Webhook received: ${repo} ${sha} ${ref}"
+                    echo "${repo} ${sha} ${ref}" >> "$REVIEW_QUEUE"
+                fi
+            else
+                echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp"
             fi
+        else
+            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
         fi
+    else
+        echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
     fi
+
+    rm -f "$tmpresp"
+    wait $NC_PID 2>/dev/null || true
 done
