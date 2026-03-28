@@ -61,6 +61,7 @@ Each submodule can be hacked independently. See `docs/` for per-project hacking 
 - `docs/tagbag-cli.md` — Unified CLI reference
 - `docs/integration-architecture.md` — Cross-service integration (webhooks, auto-close, cross-links)
 - `docs/unified-auth.md` — SSO via Gitea OAuth2 (single login for all three services)
+- `docs/claude-code-best-practices-2026.md` — Opus 4.6, hooks, skills, loops, worktrees, CI
 
 ## Important Notes
 
