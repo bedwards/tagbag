@@ -687,7 +687,7 @@ cmd_status() {
     echo "  Gitea (PRs):       http://localhost:${GITEA_HTTP_PORT:-3000}"
     echo "  Plane (Issues):    http://localhost:${LISTEN_HTTP_PORT:-8080}"
     echo "  Woodpecker (CI):   http://localhost:9080"
-    echo "  PostgreSQL:        localhost:5432"
+    echo "  PostgreSQL:        localhost:5434"
 }
 
 cmd_up() {

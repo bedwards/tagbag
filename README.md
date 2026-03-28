@@ -23,7 +23,7 @@ Three forked open-source projects, one Docker Compose stack, one unified CLI, on
 | 8080 | Plane |
 | 9080 | Woodpecker CI |
 | 8888 | TagBag Dashboard |
-| 5432 | PostgreSQL |
+| 5434 | PostgreSQL |
 | 2222 | Gitea SSH |
 
 All backed by PostgreSQL. Gitea is the OAuth2 identity provider for single sign-on.
