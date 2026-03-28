@@ -43,9 +43,11 @@ jobs:
         with:
           submodules: recursive
 
-      # docker compose config requires env vars to be defined; use .env.example
+      # docker compose config requires env files to exist; use examples
       - name: Prepare environment
-        run: cp .env.example .env
+        run: |
+          cp .env.example .env
+          cp plane.env.example plane.env
 
       - name: Validate docker-compose.yml
         run: docker compose config --quiet
