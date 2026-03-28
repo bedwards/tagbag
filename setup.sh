@@ -14,13 +14,19 @@ echo "[2/4] Adding upstream remotes..."
 (cd submodules/gitea     && { git remote get-url upstream &>/dev/null || git remote add upstream https://github.com/go-gitea/gitea.git; })
 (cd submodules/woodpecker && { git remote get-url upstream &>/dev/null || git remote add upstream https://github.com/woodpecker-ci/woodpecker.git; })
 
-# 3. Env file
-echo "[3/4] Checking .env..."
+# 3. Env files
+echo "[3/5] Checking env files..."
 if [ ! -f .env ]; then
     cp .env.example .env
     echo "  Created .env from .env.example — edit secrets before starting."
 else
     echo "  .env already exists."
+fi
+if [ ! -f plane.env ]; then
+    cp plane.env.example plane.env
+    echo "  Created plane.env from plane.env.example — edit secrets before starting."
+else
+    echo "  plane.env already exists."
 fi
 
 # 4. Build and start

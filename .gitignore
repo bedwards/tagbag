@@ -1,5 +1,6 @@
 # Never commit secrets
 .env
+plane.env
 
 # Docker volumes (if mounted locally)
 data/
