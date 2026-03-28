@@ -80,10 +80,19 @@ Diff:
 ${DIFF}
 \`\`\`"
 
+REVIEW_TIMEOUT="${TAGBAG_REVIEW_TIMEOUT:-300}"
+
 REVIEW_OUTPUT=""
 if command -v claude &>/dev/null; then
-    log "Running Claude Code review..."
-    REVIEW_OUTPUT=$(claude -p "$REVIEW_PROMPT" --model claude-opus-4-6 --max-turns 1 2>/dev/null || echo "Review failed — Claude Code not available")
+    log "Running Claude Code review (timeout: ${REVIEW_TIMEOUT}s)..."
+    REVIEW_OUTPUT=$(timeout "$REVIEW_TIMEOUT" claude -p "$REVIEW_PROMPT" --model claude-opus-4-6 --max-turns 1 2>/dev/null) || {
+        if [[ $? -eq 124 ]]; then
+            log "WARNING: Claude Code review timed out after ${REVIEW_TIMEOUT}s"
+            REVIEW_OUTPUT="Review timed out after ${REVIEW_TIMEOUT}s. The diff may be too large for automated review."
+        else
+            REVIEW_OUTPUT="Review failed — Claude Code not available"
+        fi
+    }
 else
     log "Claude Code not available, using basic review"
     REVIEW_OUTPUT="Automated review skipped — Claude Code CLI not found. Install from https://claude.com/claude-code"
@@ -144,6 +153,12 @@ if [[ "$HAS_BLOCKERS" == "true" ]]; then
 else
     set_status "success" "Code review passed"
     log "Review PASSED"
+fi
+
+# Prune clones older than 7 days
+CLONE_MAX_AGE_DAYS="${TAGBAG_CLONE_MAX_AGE:-7}"
+if [[ -d "$CLONE_DIR" ]]; then
+    find "$CLONE_DIR" -mindepth 3 -maxdepth 3 -type d -name ".git" -mtime "+${CLONE_MAX_AGE_DAYS}" -execdir bash -c 'log "Pruning stale clone: $(pwd)"; rm -rf "$(pwd)"' \; 2>/dev/null || true
 fi
 
 log "Review complete for ${REPO}@${SHA:0:8}"
