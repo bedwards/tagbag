@@ -1,0 +1,51 @@
+# TagBag TLS Gateway
+# Terminates TLS and reverse-proxies to all services.
+# For local dev: uses internal self-signed certs (tls internal)
+# For production: set TAGBAG_DOMAIN=yourdomain.com in .env for auto Let's Encrypt
+
+{$TAGBAG_DOMAIN:localhost} {
+	tls {$TAGBAG_TLS_MODE:internal}
+
+	# Gitea — code hosting, PRs, code review
+	reverse_proxy /gitea/* gitea:3000
+	handle_path /gitea {
+		redir /gitea/ permanent
+	}
+
+	# Plane — issues, sprints, project management
+	reverse_proxy /plane/* plane-proxy:80
+	handle_path /plane {
+		redir /plane/ permanent
+	}
+
+	# Woodpecker — CI/CD pipelines
+	reverse_proxy /ci/* woodpecker-server:8000
+	handle_path /ci {
+		redir /ci/ permanent
+	}
+
+	# Direct service ports (for API-only access)
+	reverse_proxy /api/gitea/* gitea:3000
+	reverse_proxy /api/plane/* plane-api:8000
+	reverse_proxy /api/woodpecker/* woodpecker-server:8000
+
+	# Dashboard — unified web UI (default / catch-all)
+	reverse_proxy /* tagbag-web:80
+
+	# Security headers
+	header {
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		format json
+	}
+}

@@ -314,6 +314,35 @@ services:
     networks:
       - tagbag
 
+  # ===========================================================================
+  # TLS Gateway (Caddy)
+  # Port 443 (HTTPS), 80 (HTTP redirect)
+  # Enable with: docker compose --profile tls up -d
+  # ===========================================================================
+
+  caddy-gateway:
+    image: caddy:2-alpine
+    restart: always
+    profiles:
+      - tls
+    volumes:
+      - ./docker/Caddyfile.gateway:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "443:443"
+      - "80:80"
+    environment:
+      TAGBAG_DOMAIN: ${TAGBAG_DOMAIN:-localhost}
+      TAGBAG_TLS_MODE: ${TAGBAG_TLS_MODE:-internal}
+    depends_on:
+      - gitea
+      - plane-proxy
+      - woodpecker-server
+      - tagbag-web
+    networks:
+      - tagbag
+
 # =============================================================================
 # Volumes
 # =============================================================================
@@ -325,6 +354,8 @@ volumes:
   rabbitmq_data:
   uploads:
   woodpecker-data:
+  caddy-data:
+  caddy-config:
 
 # =============================================================================
 # Networks
