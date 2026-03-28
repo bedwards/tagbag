@@ -29,8 +29,9 @@ verify_signature() {
     fi
     local expected
     expected=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITEA_WEBHOOK_SECRET" | sed 's/^.* //')
-    if [[ "$expected" != "$signature" ]]; then
-        log "REJECTED: invalid signature (expected=${expected}, got=${signature})"
+    # Constant-time comparison to prevent timing attacks
+    if [[ "$(printf '%s' "$expected" | openssl dgst -sha256)" != "$(printf '%s' "$signature" | openssl dgst -sha256)" ]]; then
+        log "REJECTED: invalid webhook signature"
         return 1
     fi
     return 0
@@ -83,7 +84,7 @@ while true; do
 
         if [[ -n "$json_body" ]]; then
             if verify_signature "$json_body" "$signature"; then
-                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
+                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
                 repo=$(echo "$json_body" | jq -r '.repository.full_name // empty' 2>/dev/null)
                 sha=$(echo "$json_body" | jq -r '.after // empty' 2>/dev/null)
                 ref=$(echo "$json_body" | jq -r '.ref // empty' 2>/dev/null)
@@ -92,13 +93,13 @@ while true; do
                     echo "${repo} ${sha} ${ref}" >> "$REVIEW_QUEUE"
                 fi
             else
-                echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp" &
+                echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp"
             fi
         else
-            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
+            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
         fi
     else
-        echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
+        echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
     fi
 
     rm -f "$tmpresp"

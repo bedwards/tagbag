@@ -40,8 +40,9 @@ verify_signature() {
     fi
     local expected
     expected=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITEA_WEBHOOK_SECRET" | sed 's/^.* //')
-    if [[ "$expected" != "$signature" ]]; then
-        log "REJECTED: invalid signature (expected=${expected}, got=${signature})"
+    # Constant-time comparison to prevent timing attacks
+    if [[ "$(printf '%s' "$expected" | openssl dgst -sha256)" != "$(printf '%s' "$signature" | openssl dgst -sha256)" ]]; then
+        log "REJECTED: invalid webhook signature"
         return 1
     fi
     return 0
@@ -226,7 +227,7 @@ while true; do
                 event_type=$(echo "$payload" | grep -i "^X-Gitea-Event:" | awk '{print $2}' | tr -d '\r\n')
 
                 # Send 200 response
-                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
+                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
 
                 case "$event_type" in
                     push)           handle_push "$json_body" ;;
@@ -236,13 +237,13 @@ while true; do
                 esac
             else
                 # Send 401 response
-                echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp" &
+                echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp"
             fi
         else
-            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
+            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
         fi
     else
-        echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp" &
+        echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
     fi
 
     rm -f "$tmpresp"
