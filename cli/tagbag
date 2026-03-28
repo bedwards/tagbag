@@ -39,6 +39,30 @@ TAGBAG_COMPOSE_DIR="${TAGBAG_COMPOSE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.
 export OUTPUT_JSON=false
 QUIET=false
 
+# ─── Dependency Checks ──────────────────────────────────────────────────────
+
+for cmd in jq python3 docker curl; do
+    command -v "$cmd" >/dev/null 2>&1 || {
+        echo "error: '$cmd' is required but not found. Install it with your package manager (e.g. brew install $cmd)." >&2
+        exit 1
+    }
+done
+
+if docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+else
+    echo "error: 'docker compose' is required but neither 'docker compose' nor 'docker-compose' is available." >&2
+    exit 1
+fi
+export DOCKER_COMPOSE
+
+[[ -f "${TAGBAG_COMPOSE_DIR}/docker-compose.yml" ]] || {
+    echo "error: docker-compose.yml not found in ${TAGBAG_COMPOSE_DIR}. Run tagbag from the project root or set TAGBAG_COMPOSE_DIR." >&2
+    exit 1
+}
+
 # ─── Colors ──────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
