@@ -131,6 +131,7 @@ Commands:
   logs [service...]       Tail service logs
 
   push <owner/repo> [opts] Push a Gitea repo to GitHub (code+commits+tags)
+  reviewer                Manage Claude Code reviewer (tmux, webhooks)
   plane                   Plane issue tracker commands
   gitea                   Gitea git/PR commands (wraps tea CLI)
   ci                      Woodpecker CI commands (wraps woodpecker-cli)
@@ -693,6 +694,106 @@ cmd_logs() {
     docker compose -f "${compose_dir}/docker-compose.yml" logs -f "$@"
 }
 
+# ─── Reviewer Command ────────────────────────────────────────────────────────
+
+TMUX_SESSION="tagbag-reviewer"
+
+reviewer_help() {
+    cat <<'EOF'
+tagbag reviewer — manage the Claude Code reviewer tmux session
+
+Usage: tagbag reviewer <subcommand>
+
+Subcommands:
+  start                   Start the reviewer (tmux + webhook server)
+  stop                    Stop the reviewer
+  status                  Show reviewer status
+  logs                    Tail reviewer logs
+  register <owner/repo>   Register a Gitea repo webhook for review
+
+The reviewer listens for Gitea push webhooks, clones the repo,
+runs Claude Code for a thorough review, posts a comment, and
+sets commit status (pass/fail) to block or allow merges.
+EOF
+}
+
+cmd_reviewer() {
+    local subcmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        help|--help|-h) reviewer_help ;;
+
+        start)
+            if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+                warn "Reviewer already running (tmux session: ${TMUX_SESSION})"
+                tmux list-sessions -F "#{session_name} #{session_created_string}" 2>/dev/null | grep "$TMUX_SESSION"
+                return
+            fi
+            local reviewer_dir
+            reviewer_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../reviewer" && pwd)"
+            mkdir -p "${TAGBAG_CLONE_DIR}"
+            info "Starting reviewer in tmux session '${TMUX_SESSION}'..."
+            tmux new-session -d -s "$TMUX_SESSION" "bash ${reviewer_dir}/webhook-server.sh"
+            echo -e "${GREEN}Reviewer started.${NC}"
+            echo "  tmux session: ${TMUX_SESSION}"
+            echo "  Webhook port: ${TAGBAG_REVIEW_PORT:-9876}"
+            echo "  Clone dir:    ${TAGBAG_CLONE_DIR}"
+            echo "  Attach:       tmux attach -t ${TMUX_SESSION}"
+            echo "  Logs:         tagbag reviewer logs"
+            ;;
+
+        stop)
+            if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+                tmux kill-session -t "$TMUX_SESSION"
+                echo -e "${GREEN}Reviewer stopped.${NC}"
+            else
+                warn "Reviewer is not running."
+            fi
+            ;;
+
+        status)
+            if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+                echo -e "${GREEN}Reviewer is running${NC}"
+                echo "  tmux session: ${TMUX_SESSION}"
+                echo "  Webhook port: ${TAGBAG_REVIEW_PORT:-9876}"
+                echo "  Clone dir:    ${TAGBAG_CLONE_DIR}"
+                local queue
+                queue="${XDG_CONFIG_HOME:-$HOME/.config}/tagbag/review-queue"
+                if [[ -f "$queue" ]]; then
+                    local qlen
+                    qlen=$(wc -l < "$queue" | tr -d ' ')
+                    echo "  Queue depth:  ${qlen}"
+                fi
+            else
+                echo -e "${YELLOW}Reviewer is not running${NC}"
+                echo "  Start with: tagbag reviewer start"
+            fi
+            ;;
+
+        logs)
+            local logfile
+            logfile="${XDG_CONFIG_HOME:-$HOME/.config}/tagbag/reviewer.log"
+            if [[ -f "$logfile" ]]; then
+                tail -f "$logfile"
+            else
+                warn "No reviewer log found at ${logfile}"
+            fi
+            ;;
+
+        register)
+            local repo="${1:?Usage: tagbag reviewer register <owner/repo>}"
+            require_gitea_token
+            local webhook_url="http://host.docker.internal:${TAGBAG_REVIEW_PORT:-9876}"
+            info "Registering webhook for ${repo} → ${webhook_url}"
+            gitea_api POST "/repos/${repo}/hooks" \
+                -d "$(jq -n --arg url "$webhook_url" \
+                    '{type:"gitea",active:true,config:{url:$url,content_type:"json"},events:["push"]}')" | jq '{id, url: .config.url, events, active}' ;;
+
+        *) die "Unknown reviewer subcommand: $subcmd. Run 'tagbag reviewer --help'." ;;
+    esac
+}
+
 # ─── Push Command ────────────────────────────────────────────────────────────
 
 push_help() {
@@ -959,6 +1060,7 @@ main() {
         build)          cmd_build "$@" ;;
         logs)           cmd_logs "$@" ;;
         push)           cmd_push "$@" ;;
+        reviewer)       cmd_reviewer "$@" ;;
         plane)          cmd_plane "$@" ;;
         gitea)          cmd_gitea "$@" ;;
         ci)             cmd_ci "$@" ;;
