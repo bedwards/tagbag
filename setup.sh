@@ -16,18 +16,14 @@ echo "[2/4] Adding upstream remotes..."
 
 # 3. Env files
 echo "[3/5] Checking env files..."
-if [ ! -f .env ]; then
-    cp .env.example .env
-    echo "  Created .env from .env.example — edit secrets before starting."
-else
-    echo "  .env already exists."
-fi
-if [ ! -f plane.env ]; then
-    cp plane.env.example plane.env
-    echo "  Created plane.env from plane.env.example — edit secrets before starting."
-else
-    echo "  plane.env already exists."
-fi
+for env_file in .env plane.env; do
+    if [ ! -f "$env_file" ]; then
+        cp "${env_file}.example" "$env_file"
+        echo "  Created $env_file from ${env_file}.example — edit secrets before starting."
+    else
+        echo "  $env_file already exists."
+    fi
+done
 
 # 4. Build and start
 echo "[4/5] Building from source and starting services..."
