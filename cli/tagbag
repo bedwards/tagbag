@@ -130,6 +130,7 @@ Commands:
   build [service...]      Build services from source
   logs [service...]       Tail service logs
 
+  clone <owner/repo> [path] Clone a repo from Gitea (--ssh for SSH)
   web                     Open TagBag dashboard in browser
   push <owner/repo> [opts] Push a Gitea repo to GitHub (code+commits+tags)
   reviewer                Manage Claude Code reviewer (tmux, webhooks)
@@ -915,6 +916,42 @@ cmd_push() {
     echo -e "${GREEN}Done!${NC} ${gitea_repo} pushed to github.com/${github_repo}"
 }
 
+# ─── Clone Command ───────────────────────────────────────────────────────────
+
+cmd_clone() {
+    local repo="${1:-}"
+    if [[ -z "$repo" || "$repo" == "--help" || "$repo" == "-h" ]]; then
+        echo "Usage: tagbag clone <owner/repo> [path] [--ssh]"
+        echo ""
+        echo "Clone a repository from Gitea."
+        echo "  --ssh    Use SSH URL (default: HTTPS)"
+        return
+    fi
+    shift
+
+    local use_ssh=false target=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ssh) use_ssh=true; shift ;;
+            *)     target="$1"; shift ;;
+        esac
+    done
+
+    require_gitea_token
+    local url_field=".clone_url"
+    [[ "$use_ssh" == "true" ]] && url_field=".ssh_url"
+    local clone_url
+    clone_url=$(gitea_api GET "/repos/${repo}" | jq -r "$url_field // empty")
+    [[ -n "$clone_url" ]] || die "Could not find repo: ${repo}"
+
+    info "Cloning ${repo}..."
+    if [[ -n "$target" ]]; then
+        git clone "$clone_url" "$target"
+    else
+        git clone "$clone_url"
+    fi
+}
+
 # ─── Web Command ─────────────────────────────────────────────────────────────
 
 cmd_web() {
@@ -1092,6 +1129,7 @@ main() {
         down)           cmd_down "$@" ;;
         build)          cmd_build "$@" ;;
         logs)           cmd_logs "$@" ;;
+        clone)          cmd_clone "$@" ;;
         web)            cmd_web ;;
         push)           cmd_push "$@" ;;
         reviewer)       cmd_reviewer "$@" ;;
