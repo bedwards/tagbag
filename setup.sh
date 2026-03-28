@@ -25,6 +25,42 @@ for env_file in .env plane.env; do
     fi
 done
 
+# 3.5. Check for port conflicts
+echo ""
+echo "Checking for port conflicts..."
+# Source .env for port variables
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+PORTS=(
+    "${POSTGRES_HOST_PORT:-5434}:PostgreSQL"
+    "${GITEA_HTTP_PORT:-3000}:Gitea HTTP"
+    "${GITEA_SSH_PORT:-2222}:Gitea SSH"
+    "${LISTEN_HTTP_PORT:-8080}:Plane"
+    "9080:Woodpecker"
+    "8888:Dashboard"
+)
+CONFLICTS=0
+for entry in "${PORTS[@]}"; do
+    PORT="${entry%%:*}"
+    NAME="${entry#*:}"
+    PID=$(lsof -ti ":${PORT}" 2>/dev/null | head -1 || true)
+    if [ -n "$PID" ]; then
+        PROC=$(ps -p "$PID" -o comm= 2>/dev/null || echo "unknown")
+        echo "  CONFLICT: Port ${PORT} (${NAME}) in use by '${PROC}' (PID ${PID})"
+        CONFLICTS=$((CONFLICTS + 1))
+    fi
+done
+if [ "$CONFLICTS" -gt 0 ]; then
+    echo ""
+    echo "  ${CONFLICTS} port conflict(s) found. Stop the conflicting processes or"
+    echo "  change ports in .env before continuing."
+    echo "  Press Ctrl+C to abort, or wait 10 seconds to continue anyway..."
+    sleep 10
+fi
+echo ""
+
 # 4. Build and start
 echo "[4/5] Building from source and starting services..."
 echo ""
