@@ -45,32 +45,16 @@ log "TagBag Code Reviewer starting on port ${REVIEW_PORT}"
 log "Queue: ${REVIEW_QUEUE}"
 log "Log: ${REVIEW_LOG}"
 
-# Lock helper — uses flock if available, falls back to mkdir
-queue_lock() {
-    if command -v flock &>/dev/null; then
-        exec 9>"$REVIEW_QUEUE_LOCK"
-        flock 9
-    else
-        while ! mkdir "$REVIEW_QUEUE_LOCK" 2>/dev/null; do sleep 0.1; done
-    fi
-}
-queue_unlock() {
-    if command -v flock &>/dev/null; then
-        flock -u 9
-    else
-        rmdir "$REVIEW_QUEUE_LOCK" 2>/dev/null || true
-    fi
-}
-
 # Process review queue in background
 process_queue() {
     while true; do
         if [[ -s "$REVIEW_QUEUE" ]]; then
             local line
-            queue_lock
-            line=$(head -1 "$REVIEW_QUEUE")
-            tail -n +2 "$REVIEW_QUEUE" > "${REVIEW_QUEUE}.tmp" && mv "${REVIEW_QUEUE}.tmp" "$REVIEW_QUEUE"
-            queue_unlock
+            # Use flock for atomic queue pop
+            line=$(flock "${REVIEW_QUEUE}.lock" bash -c '
+                head -1 "'"$REVIEW_QUEUE"'"
+                tail -n +2 "'"$REVIEW_QUEUE"'" > "'"$REVIEW_QUEUE"'.tmp" && mv "'"$REVIEW_QUEUE"'.tmp" "'"$REVIEW_QUEUE"'"
+            ')
             if [[ -n "$line" ]]; then
                 log "Processing: $line"
                 # shellcheck disable=SC2086
@@ -82,59 +66,14 @@ process_queue() {
 }
 process_queue &
 QUEUE_PID=$!
-trap 'kill $QUEUE_PID 2>/dev/null; log "Reviewer stopped"' EXIT
 
-# Listen for webhooks
-while true; do
-    tmpfifo=$(mktemp -u)
-    mkfifo "$tmpfifo"
-    tmpresp=$(mktemp -u)
-    mkfifo "$tmpresp"
+# Start threaded HTTP webhook server (handles concurrent connections)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+python3 "${SCRIPT_DIR}/webhook-http.py" &
+HTTP_PID=$!
 
-    # Listen for one connection
-    (cat "$tmpresp" | nc -l "$REVIEW_PORT" > "$tmpfifo" 2>/dev/null) &
-    NC_PID=$!
+trap 'kill $QUEUE_PID $HTTP_PID 2>/dev/null; log "Reviewer stopped"' EXIT
 
-    # Read the raw request
-    payload=$(timeout 300 cat "$tmpfifo" 2>/dev/null || true)
-    rm -f "$tmpfifo"
-
-    # Parse the payload — extract repo full_name and commit SHA
-    if [[ -n "$payload" ]]; then
-        # Try to extract JSON body (after the blank line in HTTP request)
-        json_body=$(echo "$payload" | sed -n '/^\r*$/,$ p' | tail -n +2)
-        signature=$(echo "$payload" | grep -i "^X-Gitea-Signature:" | awk '{print $2}' | tr -d '\r\n')
-
-        if [[ -n "$json_body" ]]; then
-            if verify_signature "$json_body" "$signature"; then
-                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
-                repo=$(echo "$json_body" | jq -r '.repository.full_name // empty' 2>/dev/null)
-                sha=$(echo "$json_body" | jq -r '.after // empty' 2>/dev/null)
-                ref=$(echo "$json_body" | jq -r '.ref // empty' 2>/dev/null)
-                if [[ -n "$repo" && -n "$sha" ]]; then
-                    queue_lock
-                    queue_depth=$(wc -l < "$REVIEW_QUEUE" 2>/dev/null || echo "0")
-                    queue_depth=$((queue_depth + 0))
-                    if [[ "$queue_depth" -ge "$REVIEW_QUEUE_MAX" ]]; then
-                        log "WARNING: Queue full (${queue_depth}/${REVIEW_QUEUE_MAX}) — dropping oldest entry"
-                        tail -n +2 "$REVIEW_QUEUE" > "${REVIEW_QUEUE}.tmp" && mv "${REVIEW_QUEUE}.tmp" "$REVIEW_QUEUE"
-                    elif [[ "$queue_depth" -ge "$REVIEW_QUEUE_WARN" ]]; then
-                        log "WARNING: Queue depth ${queue_depth}/${REVIEW_QUEUE_MAX}"
-                    fi
-                    echo "${repo} ${sha} ${ref}" >> "$REVIEW_QUEUE"
-                    queue_unlock
-                    log "Webhook received: ${repo} ${sha} ${ref}"
-                fi
-            else
-                echo -e "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized" > "$tmpresp"
-            fi
-        else
-            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
-        fi
-    else
-        echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" > "$tmpresp"
-    fi
-
-    rm -f "$tmpresp"
-    wait $NC_PID 2>/dev/null || true
-done
+# Wait for either process to exit
+wait -n $QUEUE_PID $HTTP_PID 2>/dev/null || true
+log "A subprocess exited unexpectedly, shutting down"
