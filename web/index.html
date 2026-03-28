@@ -689,8 +689,12 @@ function switchTab(view) {
 
 // ═══ Health checks ═══
 async function checkHealth() {
-  const c = getConfig();
-  for (const [id, url] of [['dotGitea', `${c.giteaUrl}/api/v1/settings/api`], ['dotPlane', `${c.planeUrl}/api/instances/`], ['dotWoodpecker', `${c.woodpeckerUrl}/api/version`]]) {
+  const urls = [
+    ['dotGitea', `${DEFAULTS.giteaUrl}/api/v1/settings/api`],
+    ['dotPlane', `${DEFAULTS.planeUrl}/api/instances/`],
+    ['dotWoodpecker', `${DEFAULTS.woodpeckerUrl}/api/version`],
+  ];
+  for (const [id, url] of urls) {
     try {
       const r = await fetch(url);
       document.getElementById(id).className = r.ok ? 'dot ok' : 'dot err';
