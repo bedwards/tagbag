@@ -130,6 +130,7 @@ Commands:
   build [service...]      Build services from source
   logs [service...]       Tail service logs
 
+  push <owner/repo> [opts] Push a Gitea repo to GitHub (code+commits+tags)
   plane                   Plane issue tracker commands
   gitea                   Gitea git/PR commands (wraps tea CLI)
   ci                      Woodpecker CI commands (wraps woodpecker-cli)
@@ -692,6 +693,107 @@ cmd_logs() {
     docker compose -f "${compose_dir}/docker-compose.yml" logs -f "$@"
 }
 
+# ─── Push Command ────────────────────────────────────────────────────────────
+
+push_help() {
+    cat <<'EOF'
+tagbag push — push a Gitea repo to GitHub (code, commits, tags only)
+
+Usage: tagbag push <gitea-owner/repo> [opts]
+
+Options:
+  --github OWNER/REPO   GitHub target (default: same as Gitea owner/repo)
+  --branch BRANCH       Branch to push (default: all branches)
+  --tags                Push tags (default: yes)
+  --no-tags             Skip tags
+  --create              Create the GitHub repo if it doesn't exist
+  --private             Make GitHub repo private (with --create)
+  --mirror              Set up as a push mirror in Gitea (ongoing sync)
+  --help                Show this help
+
+By default pushes code, commits, and tags. Does NOT push issues,
+pull requests, branches, or actions.
+EOF
+}
+
+cmd_push() {
+    local gitea_repo="${1:-}"
+    if [[ -z "$gitea_repo" || "$gitea_repo" == "--help" || "$gitea_repo" == "-h" ]]; then
+        push_help
+        return
+    fi
+    shift
+
+    local github_repo="$gitea_repo" branch="" push_tags=true create=false private=false mirror=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --github)   github_repo="$2"; shift 2 ;;
+            --branch)   branch="$2"; shift 2 ;;
+            --tags)     push_tags=true; shift ;;
+            --no-tags)  push_tags=false; shift ;;
+            --create)   create=true; shift ;;
+            --private)  private=true; shift ;;
+            --mirror)   mirror=true; shift ;;
+            --help|-h)  push_help; return ;;
+            *)          die "Unknown option: $1" ;;
+        esac
+    done
+
+    require_gitea_token
+
+    # Clone from Gitea to temp dir
+    local clone_url
+    clone_url=$(gitea_api GET "/repos/${gitea_repo}" | jq -r '.clone_url // empty')
+    [[ -n "$clone_url" ]] || die "Could not find Gitea repo: ${gitea_repo}"
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmpdir'" EXIT
+
+    info "Cloning ${gitea_repo} from Gitea..."
+    git clone --bare "${clone_url}" "${tmpdir}/repo.git" 2>&1 | tail -1
+
+    # Create GitHub repo if requested
+    if [[ "$create" == "true" ]]; then
+        info "Creating GitHub repo ${github_repo}..."
+        if [[ "$private" == "true" ]]; then
+            gh repo create "${github_repo}" --private --confirm 2>/dev/null || true
+        else
+            gh repo create "${github_repo}" --public --confirm 2>/dev/null || true
+        fi
+    fi
+
+    # Push to GitHub
+    local github_url="git@github.com:${github_repo}.git"
+    cd "${tmpdir}/repo.git"
+    git remote add github "${github_url}" 2>/dev/null || git remote set-url github "${github_url}"
+
+    if [[ -n "$branch" ]]; then
+        info "Pushing branch ${branch} to GitHub..."
+        git push github "${branch}" 2>&1
+    else
+        info "Pushing all branches to GitHub..."
+        git push github --all 2>&1
+    fi
+
+    if [[ "$push_tags" == "true" ]]; then
+        info "Pushing tags to GitHub..."
+        git push github --tags 2>&1
+    fi
+
+    # Set up mirror in Gitea if requested
+    if [[ "$mirror" == "true" ]]; then
+        info "Setting up push mirror in Gitea..."
+        gitea_api POST "/repos/${gitea_repo}/push_mirrors" \
+            -d "$(jq -n --arg addr "$github_url" --arg interval "8h" \
+                '{remote_address: $addr, interval: $interval, sync_on_commit: true}')" | jq '.' 2>/dev/null
+        info "Push mirror configured (syncs on commit + every 8h)"
+    fi
+
+    echo -e "${GREEN}Done!${NC} ${gitea_repo} pushed to github.com/${github_repo}"
+}
+
 # ─── Login Command ───────────────────────────────────────────────────────────
 
 TAGBAG_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tagbag"
@@ -856,6 +958,7 @@ main() {
         down)           cmd_down "$@" ;;
         build)          cmd_build "$@" ;;
         logs)           cmd_logs "$@" ;;
+        push)           cmd_push "$@" ;;
         plane)          cmd_plane "$@" ;;
         gitea)          cmd_gitea "$@" ;;
         ci)             cmd_ci "$@" ;;
