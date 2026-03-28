@@ -134,6 +134,7 @@ Commands:
   web                     Open TagBag dashboard in browser
   push <owner/repo> [opts] Push a Gitea repo to GitHub (code+commits+tags)
   reviewer                Manage Claude Code reviewer (tmux, webhooks)
+  bridge                  Manage webhook bridge (issue-PR linking)
   plane                   Plane issue tracker commands
   gitea                   Gitea git/PR commands (wraps tea CLI)
   ci                      Woodpecker CI commands (wraps woodpecker-cli)
@@ -833,6 +834,91 @@ cmd_reviewer() {
     esac
 }
 
+# ─── Bridge Command ──────────────────────────────────────────────────────────
+
+BRIDGE_TMUX="tagbag-bridge"
+
+cmd_bridge() {
+    local subcmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        help|--help|-h)
+            cat <<'EOF'
+tagbag bridge — manage the webhook bridge (issue-PR cross-linking)
+
+Usage: tagbag bridge <subcommand>
+
+Subcommands:
+  start                   Start the bridge (tmux session)
+  stop                    Stop the bridge
+  status                  Show bridge status
+  logs                    Tail bridge logs
+  register <owner/repo>   Register a Gitea repo for bridge events
+
+The bridge listens for Gitea push, pull_request, and create events.
+It parses PROJ-123 references in commit messages, PR titles, and
+branch names, then updates the corresponding Plane work items with
+comments and links.
+EOF
+            ;;
+
+        start)
+            if tmux has-session -t "$BRIDGE_TMUX" 2>/dev/null; then
+                warn "Bridge already running (tmux session: ${BRIDGE_TMUX})"
+                return
+            fi
+            local bridge_dir
+            bridge_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bridge" && pwd)"
+            info "Starting bridge in tmux session '${BRIDGE_TMUX}'..."
+            tmux new-session -d -s "$BRIDGE_TMUX" "bash ${bridge_dir}/webhook-bridge.sh"
+            echo -e "${GREEN}Bridge started.${NC}"
+            echo "  tmux session: ${BRIDGE_TMUX}"
+            echo "  Webhook port: ${TAGBAG_BRIDGE_PORT:-9877}"
+            ;;
+
+        stop)
+            if tmux has-session -t "$BRIDGE_TMUX" 2>/dev/null; then
+                tmux kill-session -t "$BRIDGE_TMUX"
+                echo -e "${GREEN}Bridge stopped.${NC}"
+            else
+                warn "Bridge is not running."
+            fi
+            ;;
+
+        status)
+            if tmux has-session -t "$BRIDGE_TMUX" 2>/dev/null; then
+                echo -e "${GREEN}Bridge is running${NC}"
+                echo "  tmux session: ${BRIDGE_TMUX}"
+                echo "  Webhook port: ${TAGBAG_BRIDGE_PORT:-9877}"
+            else
+                echo -e "${YELLOW}Bridge is not running${NC}"
+            fi
+            ;;
+
+        logs)
+            local logfile
+            logfile="${XDG_CONFIG_HOME:-$HOME/.config}/tagbag/bridge.log"
+            if [[ -f "$logfile" ]]; then
+                tail -f "$logfile"
+            else
+                warn "No bridge log found at ${logfile}"
+            fi
+            ;;
+
+        register)
+            local repo="${1:?Usage: tagbag bridge register <owner/repo>}"
+            require_gitea_token
+            local webhook_url="http://host.docker.internal:${TAGBAG_BRIDGE_PORT:-9877}"
+            info "Registering bridge webhook for ${repo}..."
+            gitea_api POST "/repos/${repo}/hooks" \
+                -d "$(jq -n --arg url "$webhook_url" \
+                    '{type:"gitea",active:true,config:{url:$url,content_type:"json"},events:["push","pull_request","create"]}')" | jq '{id, events, active}' ;;
+
+        *) die "Unknown bridge subcommand: $subcmd. Run 'tagbag bridge --help'." ;;
+    esac
+}
+
 # ─── Push Command ────────────────────────────────────────────────────────────
 
 push_help() {
@@ -1146,6 +1232,7 @@ main() {
         web)            cmd_web ;;
         push)           cmd_push "$@" ;;
         reviewer)       cmd_reviewer "$@" ;;
+        bridge)         cmd_bridge "$@" ;;
         plane)          cmd_plane "$@" ;;
         gitea)          cmd_gitea "$@" ;;
         ci)             cmd_ci "$@" ;;
