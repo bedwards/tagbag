@@ -183,7 +183,7 @@ services:
     env_file:
       - ./plane.env
     healthcheck:
-      test: ["CMD-SHELL", "celery -A plane inspect ping --timeout 5 || exit 1"]
+      test: ["CMD-SHELL", "ps -ef | grep -q '[c]elery.*beat'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -368,7 +368,7 @@ services:
     image: nginx:alpine
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -396,7 +396,7 @@ services:
     profiles:
       - tls
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
