@@ -1,0 +1,19 @@
+# TagBag CLI configuration
+# Copy to ~/.config/tagbag/config and fill in your values.
+# Environment variables override these settings.
+
+# Service URLs
+GITEA_URL=http://localhost:3000
+PLANE_URL=http://localhost:8080
+WOODPECKER_URL=http://localhost:9080
+
+# API tokens (create via each service's web UI)
+GITEA_TOKEN=
+PLANE_API_TOKEN=
+WOODPECKER_TOKEN=
+
+# Clone directory for code reviewer
+TAGBAG_CLONE_DIR=/Users/bedwards/vibe/tagbag-clones
+
+# Docker compose file location
+TAGBAG_COMPOSE_DIR=/Users/bedwards/vibe/tagbag
