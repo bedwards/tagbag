@@ -1,7 +1,7 @@
 ---
 name: build-loop
 description: Autonomous build loop — work through all issues, PRs, and tasks non-stop until TagBag is fully built, tested, and running
-user_invocable: true
+user-invocable: true
 ---
 
 You are in autonomous build mode. Your goal is to make TagBag a fully working, production-quality self-hosted GitHub replacement. Work continuously through every task until the full vision is complete.
