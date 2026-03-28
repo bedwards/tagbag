@@ -105,6 +105,45 @@ for db in $DATABASES; do
 done
 
 # ---------------------------------------------------------------
+# Port conflicts
+# ---------------------------------------------------------------
+log ""
+log "[Port Conflicts]"
+
+# Source .env if it exists for port variables
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env 2>/dev/null
+  set +a
+fi
+
+PORTS=(
+    "${POSTGRES_HOST_PORT:-5434}:PostgreSQL"
+    "${GITEA_HTTP_PORT:-3000}:Gitea HTTP"
+    "${GITEA_SSH_PORT:-2222}:Gitea SSH"
+    "${LISTEN_HTTP_PORT:-8080}:Plane"
+    "9080:Woodpecker"
+    "8888:Dashboard"
+)
+for entry in "${PORTS[@]}"; do
+    PORT="${entry%%:*}"
+    NAME="${entry#*:}"
+    LISTENERS=$(lsof -ti ":${PORT}" 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$LISTENERS" -gt 0 ]; then
+        # Check if it's our Docker container or something else
+        PROC=$(lsof -ti ":${PORT}" 2>/dev/null | head -1 | xargs -I{} ps -p {} -o comm= 2>/dev/null || echo "unknown")
+        if echo "$PROC" | grep -qi "docker\|com.docker"; then
+            check "Port ${PORT} (${NAME}): Docker" "pass"
+        else
+            check "Port ${PORT} (${NAME}): in use by '${PROC}'" "warn"
+        fi
+    else
+        check "Port ${PORT} (${NAME}): free" "pass"
+    fi
+done
+
+# ---------------------------------------------------------------
 # Disk space
 # ---------------------------------------------------------------
 log ""
