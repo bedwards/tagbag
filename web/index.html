@@ -616,6 +616,29 @@ a.commit-sha:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 
+/* ═══ Repo sub-tabs ═══ */
+.repo-sub-tabs {
+  margin-bottom: 1.25rem;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  display: inline-flex;
+}
+
+.repo-sub-view { animation: fadeIn 200ms ease; }
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.filter-bar label { color: var(--text-secondary); cursor: pointer; user-select: none; }
+.filter-bar input[type="checkbox"] { accent-color: var(--accent); }
+
 /* ═══ Repo detail view ═══ */
 .repo-detail { animation: fadeIn 200ms ease; }
 
@@ -966,20 +989,20 @@ a.commit-sha:hover { text-decoration: underline; }
 </header>
 
 <!-- ═══ Nav Tabs ═══ -->
-<nav class="nav-tabs">
-  <div class="nav-tab active" data-view="code" onclick="switchTab('code')">
+<nav class="nav-tabs" id="globalNav">
+  <div class="nav-tab active" data-view="code" onclick="navigate('#/')">
     &#x2630; Code <span class="tab-count" id="countCode">-</span>
   </div>
-  <div class="nav-tab" data-view="commits" onclick="switchTab('commits')">
+  <div class="nav-tab" data-view="commits" onclick="navigate('#/commits')">
     &#x2B24; Commits <span class="tab-count" id="countCommits">-</span>
   </div>
-  <div class="nav-tab" data-view="issues" onclick="switchTab('issues')">
+  <div class="nav-tab" data-view="issues" onclick="navigate('#/issues')">
     &#x25CB; Issues <span class="tab-count" id="countIssues">-</span>
   </div>
-  <div class="nav-tab" data-view="prs" onclick="switchTab('prs')">
+  <div class="nav-tab" data-view="prs" onclick="navigate('#/pulls')">
     &#x21C4; Pull Requests <span class="tab-count" id="countPrs">-</span>
   </div>
-  <div class="nav-tab" data-view="actions" onclick="switchTab('actions')">
+  <div class="nav-tab" data-view="actions" onclick="navigate('#/actions')">
     &#x25B6; Actions <span class="tab-count" id="countActions">-</span>
   </div>
 </nav>
@@ -994,16 +1017,54 @@ a.commit-sha:hover { text-decoration: underline; }
       <thead><tr><th>Repository</th><th>Last Commit</th><th>Updated</th><th>&#x2605;</th></tr></thead>
       <tbody id="bodyCode"></tbody>
     </table>
-    <!-- Inline repo detail view (replaces repo list when active) -->
-    <div id="repoDetail" style="display:none" class="repo-detail">
-      <div class="repo-detail-header">
-        <button class="btn-back" onclick="closeRepoDetail()">&#x2190; Repos</button>
-        <span class="repo-detail-title" id="repoDetailTitle"></span>
-        <select class="branch-select" id="branchSelect" onchange="onBranchChange()"></select>
-      </div>
+  </div>
+
+  <!-- Repo-Scoped View (shown when URL is #/owner/repo/...) -->
+  <div class="view" id="viewRepo">
+    <div class="repo-detail-header">
+      <button class="btn-back" onclick="navigate('#/')">&#x2190; Repos</button>
+      <span class="repo-detail-title" id="repoDetailTitle"></span>
+      <select class="branch-select" id="branchSelect" onchange="onBranchChange()"></select>
+    </div>
+
+    <nav class="nav-tabs repo-sub-tabs" id="repoSubTabs">
+      <div class="nav-tab" data-subtab="code" id="repoSubCode">&#x2630; Code</div>
+      <div class="nav-tab" data-subtab="issues" id="repoSubIssues">&#x25CB; Issues <span class="tab-count" id="countRepoIssues">-</span></div>
+      <div class="nav-tab" data-subtab="pulls" id="repoSubPulls">&#x21C4; PRs <span class="tab-count" id="countRepoPulls">-</span></div>
+      <div class="nav-tab" data-subtab="actions" id="repoSubActions">&#x25B6; Actions <span class="tab-count" id="countRepoActions">-</span></div>
+    </nav>
+
+    <div id="repoSubViewCode" class="repo-sub-view">
       <div class="breadcrumbs" id="breadcrumbs"></div>
       <div id="repoTreeContainer"></div>
       <div id="repoReadme"></div>
+    </div>
+
+    <div id="repoSubViewIssues" class="repo-sub-view" style="display:none">
+      <div class="filter-bar" id="issueFilterBar">
+        <label><input type="checkbox" id="showClosedIssues" onchange="reloadRepoIssues()"> Show completed</label>
+      </div>
+      <div class="loading" id="loadingRepoIssues"><div class="spinner"></div> Loading issues...</div>
+      <table class="data-table" id="tableRepoIssues" style="display:none">
+        <thead><tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>Assignee</th><th>Updated</th></tr></thead>
+        <tbody id="bodyRepoIssues"></tbody>
+      </table>
+    </div>
+
+    <div id="repoSubViewPulls" class="repo-sub-view" style="display:none">
+      <div class="loading" id="loadingRepoPulls"><div class="spinner"></div> Loading pull requests...</div>
+      <table class="data-table" id="tableRepoPulls" style="display:none">
+        <thead><tr><th>#</th><th>Title</th><th>Author</th><th>Branch</th><th>CI</th><th>Updated</th></tr></thead>
+        <tbody id="bodyRepoPulls"></tbody>
+      </table>
+    </div>
+
+    <div id="repoSubViewActions" class="repo-sub-view" style="display:none">
+      <div class="loading" id="loadingRepoActions"><div class="spinner"></div> Loading pipelines...</div>
+      <table class="data-table" id="tableRepoActions" style="display:none">
+        <thead><tr><th>Status</th><th>#</th><th>Message</th><th>Branch</th><th>Duration</th><th>When</th></tr></thead>
+        <tbody id="bodyRepoActions"></tbody>
+      </table>
     </div>
   </div>
 
@@ -1212,10 +1273,251 @@ function formatTime(date) {
   return date.toLocaleTimeString();
 }
 
-// ═══ Tab switching ═══
+// ═══ URL Router ═══
+function navigate(hash) { location.hash = hash; }
+
+function route() {
+  const hash = location.hash.replace(/^#\/?/, '');
+  const parts = hash.split('/').filter(Boolean);
+
+  if (parts.length === 0) { showGlobalView('code'); return; }
+  if (['commits','issues','pulls','actions'].includes(parts[0]) && parts.length === 1) {
+    showGlobalView(parts[0]); return;
+  }
+  if (parts.length >= 2) {
+    const fullName = parts[0] + '/' + parts[1];
+    const rest = parts.slice(2);
+    if (rest[0] === 'issues') { showRepoView(fullName, 'issues'); return; }
+    if (rest[0] === 'pulls') { showRepoView(fullName, 'pulls'); return; }
+    if (rest[0] === 'actions') { showRepoView(fullName, 'actions'); return; }
+    if (rest[0] === 'tree' && rest.length >= 2) {
+      const branch = decodeURIComponent(rest[1]);
+      const path = rest.slice(2).join('/');
+      showRepoView(fullName, 'code', branch, path);
+      return;
+    }
+    showRepoView(fullName, 'code'); return;
+  }
+  showGlobalView('code');
+}
+
+window.addEventListener('hashchange', route);
+
+function showGlobalView(tab) {
+  const viewMap = { code: 'viewCode', commits: 'viewCommits', issues: 'viewIssues', pulls: 'viewPrs', actions: 'viewActions' };
+  document.getElementById('viewRepo').classList.remove('active');
+  document.getElementById('viewRepo').style.display = 'none';
+  document.querySelectorAll('#globalNav .nav-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.view === (tab === 'pulls' ? 'prs' : tab))
+  );
+  document.querySelectorAll('.main > .view').forEach(v => {
+    const isTarget = v.id === viewMap[tab];
+    v.classList.toggle('active', isTarget);
+    if (v.id !== 'viewRepo') v.style.display = isTarget ? '' : 'none';
+  });
+}
+
+let currentRepo = '';
+let currentBranch = '';
+let currentPath = '';
+let lastRepoView = '';
+
+async function showRepoView(fullName, subtab, branch, path) {
+  // Hide all global views
+  document.querySelectorAll('.main > .view:not(#viewRepo)').forEach(v => {
+    v.classList.remove('active'); v.style.display = 'none';
+  });
+  const repoView = document.getElementById('viewRepo');
+  repoView.style.display = ''; repoView.classList.add('active');
+
+  // Highlight Code in global nav
+  document.querySelectorAll('#globalNav .nav-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.view === 'code')
+  );
+
+  document.getElementById('repoDetailTitle').textContent = fullName;
+
+  // Wire sub-tab clicks
+  document.getElementById('repoSubCode').onclick = () => navigate(`#/${fullName}`);
+  document.getElementById('repoSubIssues').onclick = () => navigate(`#/${fullName}/issues`);
+  document.getElementById('repoSubPulls').onclick = () => navigate(`#/${fullName}/pulls`);
+  document.getElementById('repoSubActions').onclick = () => navigate(`#/${fullName}/actions`);
+
+  // Activate sub-tab
+  document.querySelectorAll('#repoSubTabs .nav-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.subtab === subtab)
+  );
+  document.querySelectorAll('.repo-sub-view').forEach(v => v.style.display = 'none');
+
+  // Branch selector only for code
+  document.getElementById('branchSelect').style.display = subtab === 'code' ? '' : 'none';
+
+  const viewKey = fullName + '/' + subtab;
+  if (subtab === 'code') {
+    document.getElementById('repoSubViewCode').style.display = '';
+    if (currentRepo !== fullName) {
+      currentRepo = fullName;
+      if (!branch) {
+        try { const rd = await giteaFetch(`/repos/${fullName}`); branch = rd.default_branch || 'main'; } catch { branch = 'main'; }
+      }
+      currentBranch = branch;
+      loadBranches(fullName, branch);
+    }
+    if (branch) currentBranch = branch;
+    currentPath = path || '';
+    loadRepoTree(fullName, currentBranch, currentPath);
+  } else if (subtab === 'issues') {
+    document.getElementById('repoSubViewIssues').style.display = '';
+    if (lastRepoView !== viewKey) loadRepoIssues(fullName);
+  } else if (subtab === 'pulls') {
+    document.getElementById('repoSubViewPulls').style.display = '';
+    if (lastRepoView !== viewKey) loadRepoPulls(fullName);
+  } else if (subtab === 'actions') {
+    document.getElementById('repoSubViewActions').style.display = '';
+    if (lastRepoView !== viewKey) loadRepoActions(fullName);
+  }
+  lastRepoView = viewKey;
+}
+
+// ═══ Repo-scoped data loaders ═══
+async function loadRepoIssues(fullName) {
+  const repoName = fullName.split('/')[1];
+  const c = getConfig();
+  if (!c.planeToken || !c.planeWorkspace) {
+    document.getElementById('loadingRepoIssues').innerHTML = '<div class="empty"><div class="empty-icon">&#x25CB;</div>Configure Plane token and workspace in Settings</div>';
+    document.getElementById('loadingRepoIssues').style.display = '';
+    document.getElementById('tableRepoIssues').style.display = 'none';
+    return;
+  }
+  showLoading('loadingRepoIssues', 'tableRepoIssues', 'Loading issues...');
+  try {
+    const projects = await planeFetch(`/workspaces/${c.planeWorkspace}/projects/`);
+    const projectList = projects.results || projects || [];
+    const project = projectList.find(p =>
+      p.name.toLowerCase() === repoName.toLowerCase() ||
+      p.identifier.toLowerCase() === repoName.toUpperCase().substring(0, 5)
+    );
+    if (!project) {
+      document.getElementById('loadingRepoIssues').innerHTML = '<div class="empty"><div class="empty-icon">&#x25CB;</div>No Plane project for this repo</div>';
+      document.getElementById('countRepoIssues').textContent = '0';
+      return;
+    }
+    const items = await planeFetch(`/workspaces/${c.planeWorkspace}/projects/${project.id}/work-items/?expand=state,assignees`);
+    window._repoIssuesAll = (items.results || items || []).map(i => ({ ...i, project_identifier: project.identifier }));
+    renderRepoIssues();
+  } catch (e) {
+    showError('loadingRepoIssues', 'tableRepoIssues', '&#x25CB;', 'Plane', e, `loadRepoIssues('${fullName}')`);
+  }
+}
+
+function reloadRepoIssues() { renderRepoIssues(); }
+
+function renderRepoIssues() {
+  const all = window._repoIssuesAll || [];
+  const showClosed = document.getElementById('showClosedIssues').checked;
+  const completedGroups = ['completed', 'cancelled'];
+  const filtered = showClosed ? all : all.filter(i => {
+    const sg = i.state_detail?.group || i.state?.group || '';
+    return !completedGroups.includes(sg);
+  });
+  const stateGroup = { backlog: 'badge-muted', unstarted: 'badge-muted', started: 'badge-blue', completed: 'badge-green', cancelled: 'badge-red' };
+  const priorityClass = { urgent: 'priority-urgent', high: 'priority-high', medium: 'priority-medium', low: 'priority-low', none: 'priority-none' };
+  const body = document.getElementById('bodyRepoIssues');
+  if (!filtered.length) {
+    document.getElementById('loadingRepoIssues').innerHTML = `<div class="empty"><div class="empty-icon">&#x25CB;</div>${showClosed ? 'No issues' : 'No open issues'}</div>`;
+    document.getElementById('loadingRepoIssues').style.display = '';
+    document.getElementById('tableRepoIssues').style.display = 'none';
+    document.getElementById('countRepoIssues').textContent = all.length;
+    return;
+  }
+  body.innerHTML = filtered.map(i => {
+    const sg = i.state_detail?.group || i.state?.group || '';
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(i.project_identifier)}-${i.sequence_id || ''}</td>
+      <td>${escHtml(i.name || '')}</td>
+      <td><span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(i.state_detail?.name || sg || 'unknown')}</span></td>
+      <td><span class="${priorityClass[i.priority] || 'priority-none'}" style="font-family:var(--mono);font-size:0.8rem;text-transform:uppercase">${escHtml(i.priority || 'none')}</span></td>
+      <td style="font-size:0.8rem;color:var(--text-secondary)">${i.assignee_detail?.[0]?.display_name || '-'}</td>
+      <td><span class="time-ago">${timeAgo(i.updated_at)}</span></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('countRepoIssues').textContent = all.length;
+  document.getElementById('loadingRepoIssues').style.display = 'none';
+  document.getElementById('tableRepoIssues').style.display = 'table';
+}
+
+async function loadRepoPulls(fullName) {
+  showLoading('loadingRepoPulls', 'tableRepoPulls', 'Loading pull requests...');
+  try {
+    const prs = await giteaFetch(`/repos/${fullName}/pulls?state=open&limit=50`);
+    const body = document.getElementById('bodyRepoPulls');
+    if (!prs.length) {
+      document.getElementById('loadingRepoPulls').innerHTML = '<div class="empty"><div class="empty-icon">&#x21C4;</div>No open pull requests</div>';
+      document.getElementById('countRepoPulls').textContent = '0';
+      return;
+    }
+    body.innerHTML = prs.map(p => `<tr>
+      <td style="font-family:var(--mono);font-size:0.85rem;color:var(--accent)">#${p.number}</td>
+      <td>${escHtml(p.title)}</td>
+      <td style="font-size:0.85rem;color:var(--text-secondary)">${escHtml(p.user?.login || '')}</td>
+      <td><span class="badge badge-purple">${escHtml(p.head?.ref || '')}</span> &rarr; <span class="badge badge-muted">${escHtml(p.base?.ref || '')}</span></td>
+      <td><span class="badge ${p.mergeable ? 'badge-green' : 'badge-yellow'}">${p.mergeable ? 'mergeable' : 'conflicts'}</span></td>
+      <td><span class="time-ago">${timeAgo(p.updated_at)}</span></td>
+    </tr>`).join('');
+    document.getElementById('countRepoPulls').textContent = prs.length;
+    document.getElementById('loadingRepoPulls').style.display = 'none';
+    document.getElementById('tableRepoPulls').style.display = 'table';
+  } catch (e) {
+    showError('loadingRepoPulls', 'tableRepoPulls', '&#x21C4;', 'Gitea', e, `loadRepoPulls('${fullName}')`);
+  }
+}
+
+async function loadRepoActions(fullName) {
+  const c = getConfig();
+  if (!c.woodpeckerToken) {
+    document.getElementById('loadingRepoActions').innerHTML = '<div class="empty"><div class="empty-icon">&#x25B6;</div>Configure Woodpecker token in Settings</div>';
+    document.getElementById('loadingRepoActions').style.display = '';
+    document.getElementById('tableRepoActions').style.display = 'none';
+    return;
+  }
+  showLoading('loadingRepoActions', 'tableRepoActions', 'Loading pipelines...');
+  try {
+    const repos = await woodpeckerFetch('/user/repos');
+    const wcRepo = (repos || []).find(r => r.full_name === fullName);
+    if (!wcRepo || !wcRepo.active) {
+      document.getElementById('loadingRepoActions').innerHTML = '<div class="empty"><div class="empty-icon">&#x25B6;</div>No CI pipelines for this repo</div>';
+      document.getElementById('countRepoActions').textContent = '0';
+      return;
+    }
+    const pipelines = await woodpeckerFetch(`/repos/${wcRepo.id}/pipelines?per_page=20`);
+    const statusIcon = { success: '&#x2714;', failure: '&#x2718;', running: '&#x25CF;', pending: '&#x25CB;', blocked: '&#x25A0;', declined: '&#x2718;', error: '&#x2718;', killed: '&#x2718;' };
+    const statusClass = { success: 'success', failure: 'failure', running: 'running', pending: 'pending', error: 'failure', killed: 'failure' };
+    const body = document.getElementById('bodyRepoActions');
+    if (!(pipelines || []).length) {
+      document.getElementById('loadingRepoActions').innerHTML = '<div class="empty"><div class="empty-icon">&#x25B6;</div>No pipelines found</div>';
+      document.getElementById('countRepoActions').textContent = '0';
+      return;
+    }
+    body.innerHTML = (pipelines || []).map(p => `<tr>
+      <td><span class="status-icon ${statusClass[p.status] || 'pending'}">${statusIcon[p.status] || '?'}</span></td>
+      <td style="font-family:var(--mono);font-size:0.85rem">${p.number || ''}</td>
+      <td><span class="commit-msg">${escHtml(p.message?.split('\n')[0] || '')}</span></td>
+      <td><span class="badge badge-purple">${escHtml(p.branch || '')}</span></td>
+      <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-muted)">${duration(p.started_at, p.finished_at)}</td>
+      <td><span class="time-ago">${timeAgo(p.created_at ? new Date(p.created_at * 1000).toISOString() : '')}</span></td>
+    </tr>`).join('');
+    document.getElementById('countRepoActions').textContent = (pipelines || []).length;
+    document.getElementById('loadingRepoActions').style.display = 'none';
+    document.getElementById('tableRepoActions').style.display = 'table';
+  } catch (e) {
+    showError('loadingRepoActions', 'tableRepoActions', '&#x25B6;', 'Woodpecker', e, `loadRepoActions('${fullName}')`);
+  }
+}
+
+// Compat shim for old switchTab calls
 function switchTab(view) {
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
-  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view${view.charAt(0).toUpperCase() + view.slice(1)}`));
+  const map = { code: '#/', commits: '#/commits', issues: '#/issues', prs: '#/pulls', actions: '#/actions' };
+  navigate(map[view] || '#/');
 }
 
 // ═══ Error panel helper ═══
@@ -1298,10 +1600,10 @@ async function loadCode() {
     body.innerHTML = repos.map(r => `
       <tr>
         <td>
-          <span class="repo-name" style="cursor:pointer" onclick="openRepo('${escHtml(r.full_name)}','${escHtml(r.default_branch || 'main')}')">${escHtml(r.full_name)}</span>
+          <span class="repo-name" style="cursor:pointer" onclick="navigate('#/${escHtml(r.full_name)}')">${escHtml(r.full_name)}</span>
           <div class="repo-desc">${escHtml(r.description || '')}</div>
         </td>
-        <td><span class="badge badge-purple" style="cursor:pointer" onclick="openRepo('${escHtml(r.full_name)}','${escHtml(r.default_branch || 'main')}')">${escHtml(r.default_branch || 'main')}</span></td>
+        <td><span class="badge badge-purple" style="cursor:pointer" onclick="navigate('#/${escHtml(r.full_name)}')">${escHtml(r.default_branch || 'main')}</span></td>
         <td><span class="time-ago">${timeAgo(r.updated_at)}</span></td>
         <td style="font-family:var(--mono);color:var(--text-muted);font-size:0.8rem">${r.stars_count || 0}</td>
       </tr>
@@ -1481,36 +1783,7 @@ async function loadActions() {
   }
 }
 
-// ═══ Repo Detail View ═══
-let currentRepo = '';
-let currentBranch = '';
-let currentPath = '';
-
-async function openRepo(fullName, branch) {
-  currentRepo = fullName;
-  currentBranch = branch || 'main';
-  currentPath = '';
-
-  // Hide repo list, show detail
-  document.getElementById('loadingCode').style.display = 'none';
-  document.getElementById('tableCode').style.display = 'none';
-  const detail = document.getElementById('repoDetail');
-  detail.style.display = '';
-  document.getElementById('repoDetailTitle').textContent = fullName;
-
-  // Load branches and tree in parallel
-  loadBranches(fullName, currentBranch);
-  loadRepoTree(fullName, currentBranch, '');
-}
-
-function closeRepoDetail() {
-  document.getElementById('repoDetail').style.display = 'none';
-  currentRepo = '';
-  currentBranch = '';
-  currentPath = '';
-  loadCode();
-}
-
+// ═══ File Browser (used by repo code sub-tab) ═══
 async function loadBranches(fullName, activeBranch) {
   const sel = document.getElementById('branchSelect');
   sel.innerHTML = '<option>loading...</option>';
@@ -1525,9 +1798,16 @@ async function loadBranches(fullName, activeBranch) {
 }
 
 function onBranchChange() {
-  currentBranch = document.getElementById('branchSelect').value;
-  currentPath = '';
-  loadRepoTree(currentRepo, currentBranch, '');
+  const branch = document.getElementById('branchSelect').value;
+  navigate(`#/${currentRepo}/tree/${encodeURIComponent(branch)}/`);
+}
+
+function navigatePath(fullName, branch, path) {
+  if (path) {
+    navigate(`#/${fullName}/tree/${encodeURIComponent(branch)}/${path}`);
+  } else {
+    navigate(`#/${fullName}/tree/${encodeURIComponent(branch)}/`);
+  }
 }
 
 function buildBreadcrumbs(fullName, branch, path) {
@@ -1548,11 +1828,6 @@ function buildBreadcrumbs(fullName, branch, path) {
   bc.innerHTML = html;
 }
 
-function navigatePath(fullName, branch, path) {
-  currentPath = path;
-  loadRepoTree(fullName, branch, path);
-}
-
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -1570,13 +1845,11 @@ async function loadRepoTree(fullName, branch, path) {
     const apiPath = path ? `/repos/${fullName}/contents/${path}?ref=${encodeURIComponent(branch)}` : `/repos/${fullName}/contents?ref=${encodeURIComponent(branch)}`;
     const data = await giteaFetch(apiPath);
 
-    // Single file
     if (!Array.isArray(data)) {
       showFileContent(data, fullName, branch);
       return;
     }
 
-    // Directory listing — sort: dirs first, then files, alphabetical
     const entries = data.sort((a, b) => {
       if (a.type === 'dir' && b.type !== 'dir') return -1;
       if (a.type !== 'dir' && b.type === 'dir') return 1;
@@ -1593,7 +1866,6 @@ async function loadRepoTree(fullName, branch, path) {
       </div>`;
     }).join('')}</div>`;
 
-    // Load README if present in this directory
     loadReadme(fullName, branch, entries);
   } catch (e) {
     container.innerHTML = `<div class="error-panel">
@@ -1614,15 +1886,12 @@ function showFileContent(file, fullName, branch) {
     content = file.content || '';
   }
 
-  // Check if binary (contains null bytes in first 512 chars)
   const isBinary = content.substring(0, 512).indexOf('\0') !== -1;
 
   if (isBinary) {
-    // Check if image
     const ext = (file.name || '').split('.').pop().toLowerCase();
     const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'];
     if (imageExts.indexOf(ext) !== -1) {
-      // Use base64 data URI for images to avoid external links
       const imgSrc = file.content ? `data:image/${ext === 'svg' ? 'svg+xml' : ext};base64,${file.content}` : '';
       container.innerHTML = `<div class="file-content-view">
         <div class="file-content-header"><span>${escHtml(file.name)} (${formatSize(file.size || 0)})</span></div>
@@ -1667,7 +1936,6 @@ async function loadReadme(fullName, branch, entries) {
       raw = fileData.content || '';
     }
 
-    // Use Gitea's markdown rendering API
     let html;
     try {
       const c = getConfig();
@@ -1678,23 +1946,16 @@ async function loadReadme(fullName, branch, entries) {
         headers,
         body: JSON.stringify({ Context: fullName, Mode: 'gfm', Text: raw, Wiki: false }),
       });
-      if (r.ok) {
-        html = await r.text();
-      }
+      if (r.ok) { html = await r.text(); }
     } catch { /* fallback below */ }
 
-    if (!html) {
-      // Basic fallback: show as preformatted
-      html = `<pre>${escHtml(raw)}</pre>`;
-    }
+    if (!html) { html = `<pre>${escHtml(raw)}</pre>`; }
 
     readmeContainer.innerHTML = `<div class="readme-container">
       <div class="readme-header">&#x1F4D6; ${escHtml(readme.name)}</div>
       <div class="readme-body">${html}</div>
     </div>`;
-  } catch {
-    // No README or failed — that's fine
-  }
+  } catch { /* no README — fine */ }
 }
 
 // ═══ Search ═══
@@ -1743,6 +2004,7 @@ function showApp(username) {
   document.getElementById('appShell').classList.add('active');
   document.getElementById('userDisplay').textContent = username || '';
   loadAll();
+  route(); // Process current URL hash
   if (!healthInterval) healthInterval = setInterval(checkHealth, 30000);
   if (!reloadInterval) reloadInterval = setInterval(loadAll, 120000);
 }
