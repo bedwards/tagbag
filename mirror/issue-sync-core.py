@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Bidirectional issue sync between Gitea and GitHub.
+"""Bidirectional issue sync between Plane and GitHub.
 
 Uses HTML comment markers to track paired issues:
-  <!-- tagbag:gitea-issue:123 -->   (embedded in GitHub issue body)
-  <!-- tagbag:github-issue:456 -->  (embedded in Gitea issue body)
+  <!-- tagbag:plane-issue:MEM-123 -->  (embedded in GitHub issue body)
+  <!-- tagbag:github-issue:456 -->     (appended to Plane description)
 
-Syncs: title, body, state (open/closed)
-Direction: Gitea → GitHub, then GitHub → Gitea
+Syncs: title, body/description, state (open/closed ↔ Todo/Done)
+Direction: Plane → GitHub, then GitHub → Plane
 """
 import argparse
 import json
@@ -16,9 +16,9 @@ import sys
 import urllib.request
 from datetime import datetime
 
-GITEA_MARKER = "<!-- tagbag:gitea-issue:{} -->"
+PLANE_MARKER = "<!-- tagbag:plane-issue:{} -->"
 GITHUB_MARKER = "<!-- tagbag:github-issue:{} -->"
-GITEA_MARKER_RE = re.compile(r"<!-- tagbag:gitea-issue:(\d+) -->")
+PLANE_MARKER_RE = re.compile(r"<!-- tagbag:plane-issue:([\w-]+) -->")
 GITHUB_MARKER_RE = re.compile(r"<!-- tagbag:github-issue:(\d+) -->")
 
 
@@ -27,13 +27,13 @@ def log(msg):
     print(f"[issue-sync] [{ts}] {msg}", flush=True)
 
 
-def gitea_api(base_url, token, method, path, data=None):
+def plane_api(base_url, token, method, path, data=None):
     url = f"{base_url}/api/v1{path}"
     body = json.dumps(data).encode() if data else None
     req = urllib.request.Request(
         url, data=body, method=method,
         headers={
-            "Authorization": f"token {token}",
+            "X-Api-Key": token,
             "Content-Type": "application/json",
         },
     )
@@ -42,7 +42,7 @@ def gitea_api(base_url, token, method, path, data=None):
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         err_body = e.read().decode() if e.fp else ""
-        log(f"  Gitea API error {e.code} on {method} {path}: {err_body[:200]}")
+        log(f"  Plane API error {e.code} on {method} {path}: {err_body[:200]}")
         return None
 
 
@@ -62,20 +62,15 @@ def gh_api(method, path, data=None):
         return None
 
 
-def fetch_all_gitea_issues(base_url, token, repo):
-    """Fetch all issues (not PRs) from Gitea, paginating."""
-    issues = []
-    page = 1
-    while True:
-        batch = gitea_api(base_url, token, "GET",
-                          f"/repos/{repo}/issues?state=all&type=issues&limit=50&page={page}")
-        if not batch:
-            break
-        issues.extend(batch)
-        if len(batch) < 50:
-            break
-        page += 1
-    return issues
+def fetch_all_plane_items(base_url, token, workspace, project_id):
+    """Fetch all work items from a Plane project."""
+    items = []
+    # Plane API doesn't paginate the same way; fetch with large limit
+    result = plane_api(base_url, token, "GET",
+                       f"/workspaces/{workspace}/projects/{project_id}/work-items/")
+    if result:
+        items = result.get("results", result) if isinstance(result, dict) else result
+    return items if isinstance(items, list) else []
 
 
 def fetch_all_github_issues(gh_repo):
@@ -86,7 +81,6 @@ def fetch_all_github_issues(gh_repo):
         batch = gh_api("GET", f"repos/{gh_repo}/issues?state=all&per_page=100&page={page}")
         if not batch:
             break
-        # GitHub includes PRs in issues endpoint
         batch = [i for i in batch if "pull_request" not in i]
         issues.extend(batch)
         if len(batch) < 100:
@@ -96,120 +90,131 @@ def fetch_all_github_issues(gh_repo):
 
 
 def find_marker(body, pattern):
-    """Find a sync marker in issue body, return the matched ID or None."""
     if not body:
         return None
     m = pattern.search(body)
-    return int(m.group(1)) if m else None
+    return m.group(1) if m else None
 
 
 def strip_sync_footer(body):
-    """Remove the sync footer (--- + Synced from... + marker) from body."""
     if not body:
         return ""
-    # Remove trailing sync block
-    body = re.sub(r"\n*---\n\*Synced from (Gitea|GitHub) #\d+\*\n<!-- tagbag:.*?-->\s*$", "", body)
-    # Remove standalone markers
-    body = re.sub(r"\n*<!-- tagbag:(gitea|github)-issue:\d+ -->\s*$", "", body)
+    body = re.sub(r"\n*---\n\*Synced from (Plane|GitHub) .*?\*\n<!-- tagbag:.*?-->\s*$", "", body)
+    body = re.sub(r"\n*<!-- tagbag:(plane|github)-issue:[\w-]+ -->\s*$", "", body)
     return body.rstrip()
+
+
+def html_to_plain(html):
+    """Very basic HTML to plain text for Plane descriptions."""
+    if not html:
+        return ""
+    text = re.sub(r"<br\s*/?>", "\n", html)
+    text = re.sub(r"<p>", "", text)
+    text = re.sub(r"</p>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    return text.strip()
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gitea-url", required=True)
-    parser.add_argument("--gitea-token", required=True)
-    parser.add_argument("--gitea-repo", required=True)
+    parser.add_argument("--plane-url", required=True)
+    parser.add_argument("--plane-token", required=True)
+    parser.add_argument("--plane-workspace", required=True)
+    parser.add_argument("--plane-project-id", required=True)
+    parser.add_argument("--plane-project-identifier", required=True)
     parser.add_argument("--github-repo", required=True)
+    parser.add_argument("--todo-state-id", required=True)
+    parser.add_argument("--done-state-id", required=True)
     args = parser.parse_args()
 
-    gitea_issues = fetch_all_gitea_issues(args.gitea_url, args.gitea_token, args.gitea_repo)
+    plane_items = fetch_all_plane_items(args.plane_url, args.plane_token,
+                                         args.plane_workspace, args.plane_project_id)
     gh_issues = fetch_all_github_issues(args.github_repo)
-    log(f"Gitea: {len(gitea_issues)} issues, GitHub: {len(gh_issues)} issues")
+    log(f"Plane: {len(plane_items)} work items, GitHub: {len(gh_issues)} issues")
 
     # Build lookup maps
-    # GitHub issues indexed by their gitea marker (if any)
-    gh_by_gitea_id = {}
+    # GitHub issues indexed by their Plane marker
+    gh_by_plane_id = {}
     for gi in gh_issues:
-        gid = find_marker(gi.get("body", ""), GITEA_MARKER_RE)
-        if gid is not None:
-            gh_by_gitea_id[gid] = gi
+        pid = find_marker(gi.get("body", ""), PLANE_MARKER_RE)
+        if pid is not None:
+            gh_by_plane_id[pid] = gi
 
-    # Gitea issues indexed by their github marker (if any)
-    gitea_by_github_id = {}
-    for ti in gitea_issues:
-        ghid = find_marker(ti.get("body", ""), GITHUB_MARKER_RE)
+    # Plane items indexed by their GitHub marker
+    plane_by_github_id = {}
+    for pi in plane_items:
+        desc = pi.get("description_stripped") or html_to_plain(pi.get("description_html") or "")
+        ghid = find_marker(desc, GITHUB_MARKER_RE)
         if ghid is not None:
-            gitea_by_github_id[ghid] = ti
+            plane_by_github_id[int(ghid)] = pi
 
-    # ── Gitea → GitHub ──────────────────────────────────────────────────
-    log("=== Gitea → GitHub ===")
+    # State mapping
+    completed_groups = {"completed", "cancelled"}
+
+    # ── Plane → GitHub ──────────────────────────────────────────────────
+    log("=== Plane → GitHub ===")
     created_gh = 0
     updated_gh = 0
 
-    for ti in gitea_issues:
-        ti_num = ti["number"]
-        ti_title = ti["title"]
-        ti_body = ti.get("body") or ""
-        ti_state = ti["state"]  # open or closed
-        clean_body = strip_sync_footer(ti_body)
+    for pi in plane_items:
+        seq = pi.get("sequence_id", "")
+        plane_key = f"{args.plane_project_identifier}-{seq}"
+        pi_title = pi.get("name", "")
+        pi_desc = pi.get("description_stripped") or html_to_plain(pi.get("description_html") or "")
+        clean_desc = strip_sync_footer(pi_desc)
 
-        if ti_num in gh_by_gitea_id:
-            # Already paired — check for updates
-            gi = gh_by_gitea_id[ti_num]
+        # Determine state
+        state_detail = pi.get("state_detail")
+        if isinstance(state_detail, dict):
+            state_group = state_detail.get("group", "")
+        else:
+            # state is a string ID, compare directly
+            state_id = pi.get("state", "")
+            state_group = "completed" if state_id == args.done_state_id else "unstarted"
+        pi_is_closed = state_group in completed_groups
+
+        if plane_key in gh_by_plane_id:
+            gi = gh_by_plane_id[plane_key]
             gi_state = gi["state"]
-            gi_title = gi["title"]
-
             needs_update = False
-            if gi_title != ti_title:
+            if gi["title"] != pi_title:
                 needs_update = True
-            if gi_state != ti_state:
+            if (gi_state == "closed") != pi_is_closed:
                 needs_update = True
-
             if needs_update:
-                marker = GITEA_MARKER.format(ti_num)
-                synced_body = f"{clean_body}\n\n---\n*Synced from Gitea #{ti_num}*\n{marker}"
+                marker = PLANE_MARKER.format(plane_key)
+                synced_body = f"{clean_desc}\n\n---\n*Synced from Plane {plane_key}*\n{marker}"
                 gh_api("PATCH", f"repos/{args.github_repo}/issues/{gi['number']}", {
-                    "title": ti_title,
+                    "title": pi_title,
                     "body": synced_body,
-                    "state": ti_state,
+                    "state": "closed" if pi_is_closed else "open",
                 })
                 updated_gh += 1
-                log(f"  Updated GitHub #{gi['number']} ← Gitea #{ti_num}")
+                log(f"  Updated GitHub #{gi['number']} ← Plane {plane_key}")
         else:
-            # New — create on GitHub
-            marker = GITEA_MARKER.format(ti_num)
-            synced_body = f"{clean_body}\n\n---\n*Synced from Gitea #{ti_num}*\n{marker}"
+            marker = PLANE_MARKER.format(plane_key)
+            synced_body = f"{clean_desc}\n\n---\n*Synced from Plane {plane_key}*\n{marker}"
             result = gh_api("POST", f"repos/{args.github_repo}/issues", {
-                "title": ti_title,
+                "title": pi_title,
                 "body": synced_body,
             })
             if result and "number" in result:
                 gh_num = result["number"]
                 created_gh += 1
-                log(f"  Created GitHub #{gh_num} ← Gitea #{ti_num}: {ti_title}")
-
-                # Close on GitHub if closed on Gitea
-                if ti_state == "closed":
+                if pi_is_closed:
                     gh_api("PATCH", f"repos/{args.github_repo}/issues/{gh_num}", {
                         "state": "closed",
                     })
-
-                # Add reverse marker on Gitea issue
-                reverse_marker = GITHUB_MARKER.format(gh_num)
-                if reverse_marker not in ti_body:
-                    updated_gitea_body = f"{ti_body}\n\n{reverse_marker}" if ti_body else reverse_marker
-                    gitea_api(args.gitea_url, args.gitea_token, "PATCH",
-                              f"/repos/{args.gitea_repo}/issues/{ti_num}",
-                              {"body": updated_gitea_body})
+                log(f"  Created GitHub #{gh_num} ← Plane {plane_key}: {pi_title}")
             else:
-                log(f"  FAILED to create GitHub issue for Gitea #{ti_num}")
+                log(f"  FAILED to create GitHub issue for Plane {plane_key}")
 
-    log(f"  Gitea → GitHub: {created_gh} created, {updated_gh} updated")
+    log(f"  Plane → GitHub: {created_gh} created, {updated_gh} updated")
 
-    # ── GitHub → Gitea ──────────────────────────────────────────────────
-    log("=== GitHub → Gitea ===")
-    created_gitea = 0
-    updated_gitea = 0
+    # ── GitHub → Plane ──────────────────────────────────────────────────
+    log("=== GitHub → Plane ===")
+    created_plane = 0
+    updated_plane = 0
 
     for gi in gh_issues:
         gi_num = gi["number"]
@@ -218,60 +223,50 @@ def main():
         gi_state = gi["state"]
         clean_body = strip_sync_footer(gi_body)
 
-        # Skip issues that originated from Gitea (have gitea marker)
-        if find_marker(gi_body, GITEA_MARKER_RE) is not None:
+        # Skip issues that originated from Plane
+        if find_marker(gi_body, PLANE_MARKER_RE) is not None:
             continue
 
-        if gi_num in gitea_by_github_id:
-            # Already paired — check for updates
-            ti = gitea_by_github_id[gi_num]
-            ti_state = ti["state"]
-            ti_title = ti["title"]
+        gi_is_closed = gi_state == "closed"
+        state_id = args.done_state_id if gi_is_closed else args.todo_state_id
+
+        if gi_num in plane_by_github_id:
+            pi = plane_by_github_id[gi_num]
+            pi_title = pi.get("name", "")
+            pi_state_detail = pi.get("state_detail")
+            if isinstance(pi_state_detail, dict):
+                pi_state_group = pi_state_detail.get("group", "")
+            else:
+                pi_sid = pi.get("state", "")
+                pi_state_group = "completed" if pi_sid == args.done_state_id else "unstarted"
+            pi_is_closed = pi_state_group in completed_groups
 
             needs_update = False
-            if ti_title != gi_title:
+            if pi_title != gi_title:
                 needs_update = True
-            if ti_state != gi_state:
+            if pi_is_closed != gi_is_closed:
                 needs_update = True
 
             if needs_update:
-                marker = GITHUB_MARKER.format(gi_num)
-                synced_body = f"{clean_body}\n\n---\n*Synced from GitHub #{gi_num}*\n{marker}"
-                gitea_api(args.gitea_url, args.gitea_token, "PATCH",
-                          f"/repos/{args.gitea_repo}/issues/{ti['number']}",
-                          {"title": gi_title, "body": synced_body, "state": gi_state})
-                updated_gitea += 1
-                log(f"  Updated Gitea #{ti['number']} ← GitHub #{gi_num}")
+                plane_api(args.plane_url, args.plane_token, "PATCH",
+                          f"/workspaces/{args.plane_workspace}/projects/{args.plane_project_id}/work-items/{pi['id']}/",
+                          {"name": gi_title, "state": state_id})
+                updated_plane += 1
+                log(f"  Updated Plane {args.plane_project_identifier}-{pi.get('sequence_id','')} ← GitHub #{gi_num}")
         else:
-            # New GitHub issue — create on Gitea
             marker = GITHUB_MARKER.format(gi_num)
-            synced_body = f"{clean_body}\n\n---\n*Synced from GitHub #{gi_num}*\n{marker}"
-            result = gitea_api(args.gitea_url, args.gitea_token, "POST",
-                               f"/repos/{args.gitea_repo}/issues",
-                               {"title": gi_title, "body": synced_body})
-            if result and "number" in result:
-                gitea_num = result["number"]
-                created_gitea += 1
-                log(f"  Created Gitea #{gitea_num} ← GitHub #{gi_num}: {gi_title}")
-
-                # Close on Gitea if closed on GitHub
-                if gi_state == "closed":
-                    gitea_api(args.gitea_url, args.gitea_token, "PATCH",
-                              f"/repos/{args.gitea_repo}/issues/{gitea_num}",
-                              {"state": "closed"})
-
-                # Add reverse marker on GitHub issue
-                reverse_marker = GITEA_MARKER.format(gitea_num)
-                if reverse_marker not in gi_body:
-                    updated_gh_body = f"{gi_body}\n\n{reverse_marker}" if gi_body else reverse_marker
-                    gh_api("PATCH", f"repos/{args.github_repo}/issues/{gi_num}", {
-                        "body": updated_gh_body,
-                    })
+            desc_html = f"<p>{clean_body}</p><p>{marker}</p>" if clean_body else f"<p>{marker}</p>"
+            result = plane_api(args.plane_url, args.plane_token, "POST",
+                               f"/workspaces/{args.plane_workspace}/projects/{args.plane_project_id}/work-items/",
+                               {"name": gi_title, "description_html": desc_html, "state": state_id})
+            if result and "id" in result:
+                created_plane += 1
+                log(f"  Created Plane {args.plane_project_identifier}-{result.get('sequence_id','')} ← GitHub #{gi_num}: {gi_title}")
             else:
-                log(f"  FAILED to create Gitea issue for GitHub #{gi_num}")
+                log(f"  FAILED to create Plane work item for GitHub #{gi_num}")
 
-    log(f"  GitHub → Gitea: {created_gitea} created, {updated_gitea} updated")
-    log(f"Sync complete: {args.gitea_repo} ↔ github.com/{args.github_repo}")
+    log(f"  GitHub → Plane: {created_plane} created, {updated_plane} updated")
+    log(f"Sync complete: Plane {args.plane_project_identifier} ↔ github.com/{args.github_repo}")
 
 
 if __name__ == "__main__":

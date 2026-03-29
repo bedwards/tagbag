@@ -1100,7 +1100,7 @@ function getConfig() {
     giteaToken: localStorage.getItem('tagbag_gitea_token') || '',
     planeUrl: localStorage.getItem('tagbag_plane_url') || DEFAULTS.planeUrl,
     planeToken: localStorage.getItem('tagbag_plane_token') || '',
-    planeWorkspace: localStorage.getItem('tagbag_plane_workspace') || '',
+    planeWorkspace: localStorage.getItem('tagbag_plane_workspace') || localStorage.getItem('tagbag_gitea_user') || '',
     woodpeckerUrl: localStorage.getItem('tagbag_woodpecker_url') || DEFAULTS.woodpeckerUrl,
     woodpeckerToken: localStorage.getItem('tagbag_woodpecker_token') || '',
   };
@@ -1815,8 +1815,23 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   }
 });
 
-// ═══ Init ═══ (replaces the old loadAll() at bottom)
-tryAutoLogin();
+// ═══ Auto-load server config (Plane token, workspace) ═══
+async function loadServerConfig() {
+  try {
+    const r = await fetch('/config.json');
+    if (!r.ok) return;
+    const cfg = await r.json();
+    if (cfg.planeToken && !localStorage.getItem('tagbag_plane_token')) {
+      localStorage.setItem('tagbag_plane_token', cfg.planeToken);
+    }
+    if (cfg.planeWorkspace && !localStorage.getItem('tagbag_plane_workspace')) {
+      localStorage.setItem('tagbag_plane_workspace', cfg.planeWorkspace);
+    }
+  } catch { /* config.json optional */ }
+}
+
+// ═══ Init ═══
+loadServerConfig().then(() => tryAutoLogin());
 </script>
 </body>
 </html>
