@@ -57,8 +57,20 @@ process_queue() {
             ')
             if [[ -n "$line" ]]; then
                 log "Processing: $line"
+                SCRIPT_DIR="$(dirname "$0")"
+                # Run Claude and Gemini reviews in parallel
                 # shellcheck disable=SC2086
-                bash "$(dirname "$0")/do-review.sh" $line 2>&1 | tee -a "$REVIEW_LOG" || true
+                bash "${SCRIPT_DIR}/do-review.sh" $line 2>&1 | tee -a "$REVIEW_LOG" &
+                CLAUDE_PID=$!
+                if [[ -x "${SCRIPT_DIR}/do-review-gemini.sh" ]] && command -v gemini &>/dev/null; then
+                    # shellcheck disable=SC2086
+                    bash "${SCRIPT_DIR}/do-review-gemini.sh" $line 2>&1 | tee -a "$REVIEW_LOG" &
+                    GEMINI_PID=$!
+                    wait "$CLAUDE_PID" || true
+                    wait "$GEMINI_PID" || true
+                else
+                    wait "$CLAUDE_PID" || true
+                fi
             fi
         fi
         sleep 2

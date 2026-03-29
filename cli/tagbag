@@ -813,6 +813,12 @@ cmd_reviewer() {
                     qlen=$(wc -l < "$queue" | tr -d ' ')
                     echo "  Queue depth:  ${qlen}"
                 fi
+                # Show Gemini status
+                if command -v gemini &>/dev/null; then
+                    echo -e "  ${GREEN}Gemini CLI:  available (dual-reviewer mode)${NC}"
+                else
+                    echo -e "  ${YELLOW}Gemini CLI:  not installed (Claude-only mode)${NC}"
+                fi
             else
                 echo -e "${YELLOW}Reviewer is not running${NC}"
                 echo "  Start with: tagbag reviewer start"
@@ -849,10 +855,16 @@ cmd_reviewer() {
                 esac
             done
             require_gitea_token
-            info "Setting branch protection on ${repo}:${branch} (require tagbag-reviewer)..."
+            local contexts='["tagbag-reviewer"]'
+            if command -v gemini &>/dev/null; then
+                contexts='["tagbag-reviewer","tagbag-gemini-reviewer"]'
+                info "Setting branch protection on ${repo}:${branch} (require both Claude + Gemini reviewers)..."
+            else
+                info "Setting branch protection on ${repo}:${branch} (require tagbag-reviewer)..."
+            fi
             gitea_api POST "/repos/${repo}/branch_protections" \
-                -d "$(jq -n --arg b "$branch" \
-                    '{branch_name: $b, enable_status_check: true, status_check_contexts: ["tagbag-reviewer"], required_approvals: 0, enable_push: true}')" | jq '{branch_name, enable_status_check, status_check_contexts}' ;;
+                -d "$(jq -n --arg b "$branch" --argjson c "$contexts" \
+                    '{branch_name: $b, enable_status_check: true, status_check_contexts: $c, required_approvals: 0, enable_push: true}')" | jq '{branch_name, enable_status_check, status_check_contexts}' ;;
 
         *) die "Unknown reviewer subcommand: $subcmd. Run 'tagbag reviewer --help'." ;;
     esac
