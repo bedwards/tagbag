@@ -111,6 +111,31 @@ resolve_plane_project() {
     echo "$uuid"
 }
 
+# Resolve a work item identifier (e.g. MEM-4) or UUID to UUID
+# If PROJ-N format, uses workspace-level lookup
+resolve_plane_work_item() {
+    local ws="$1" iid="$2"
+    # If it looks like a UUID, use as-is
+    if [[ "$iid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        echo "$iid"
+        return
+    fi
+    # If PROJ-N format, look up via workspace-level endpoint
+    if [[ "$iid" =~ ^[A-Z]+-[0-9]+$ ]]; then
+        require_plane_token
+        local result
+        result=$(curl -sf "${PLANE_URL}/api/v1/workspaces/${ws}/work-items/${iid}/" \
+            -H "X-Api-Key: $PLANE_API_TOKEN" 2>/dev/null) || { die "Work item '${iid}' not found"; }
+        local uuid
+        uuid=$(echo "$result" | jq -r '.id' 2>/dev/null)
+        [[ -n "$uuid" && "$uuid" != "null" ]] || die "Could not resolve '${iid}' to UUID"
+        echo "$uuid"
+        return
+    fi
+    # Assume raw ID
+    echo "$iid"
+}
+
 # Plane API helper
 plane_api() {
     local method="$1" path="$2"
@@ -280,6 +305,7 @@ cmd_plane() {
                 local proj
                 proj=$(resolve_plane_project "$ws" "$second")
                 local iid="${3:?}"
+                iid=$(resolve_plane_work_item "$ws" "$iid")
                 plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/" | jq '.'
             fi
             ;;
@@ -345,6 +371,7 @@ cmd_plane() {
             local proj="${2:?}"
             proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
+            iid=$(resolve_plane_work_item "$ws" "$iid")
             shift 3
             local body="{}"
             while [[ $# -gt 0 ]]; do
@@ -364,6 +391,7 @@ cmd_plane() {
             local proj="${2:?}"
             proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
+            iid=$(resolve_plane_work_item "$ws" "$iid")
             plane_api DELETE "/workspaces/${ws}/projects/${proj}/work-items/${iid}/" ;;
 
         states)
@@ -399,6 +427,7 @@ cmd_plane() {
             local proj="${2:?}"
             proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
+            iid=$(resolve_plane_work_item "$ws" "$iid")
             plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/comments/" | jq '.' ;;
 
         add-comment)
@@ -406,6 +435,7 @@ cmd_plane() {
             local proj="${2:?}"
             proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
+            iid=$(resolve_plane_work_item "$ws" "$iid")
             shift 3
             local body_text=""
             while [[ $# -gt 0 ]]; do
@@ -424,6 +454,7 @@ cmd_plane() {
             local proj="${2:?}"
             proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
+            iid=$(resolve_plane_work_item "$ws" "$iid")
             plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/activities/" | jq '.' ;;
 
         *) die "Unknown plane subcommand: $subcmd. Run 'tagbag plane --help'." ;;

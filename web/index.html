@@ -639,6 +639,28 @@ a.commit-sha:hover { text-decoration: underline; }
 .filter-bar label { color: var(--text-secondary); cursor: pointer; user-select: none; }
 .filter-bar input[type="checkbox"] { accent-color: var(--accent); }
 
+/* ═══ Detail views (PR, Issue) ═══ */
+.detail-header { margin-bottom: 1.5rem; }
+.detail-header h2 { font-family: var(--sans); font-size: 1.4rem; color: var(--text-primary); margin: 0 0 0.5rem; }
+.detail-header .detail-meta { font-family: var(--mono); font-size: 0.8rem; color: var(--text-secondary); display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.detail-back { font-family: var(--mono); font-size: 0.85rem; color: var(--accent); cursor: pointer; margin-bottom: 1rem; display: inline-block; }
+.detail-back:hover { text-decoration: underline; }
+.detail-body { font-family: var(--sans); font-size: 0.95rem; color: var(--text-primary); line-height: 1.6; padding: 1rem; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px; }
+.detail-body p { margin: 0 0 0.75rem; }
+.detail-body pre { background: var(--bg-deep); padding: 0.75rem; border-radius: 4px; overflow-x: auto; font-family: var(--mono); font-size: 0.85rem; }
+.detail-body code { font-family: var(--mono); font-size: 0.85rem; }
+.detail-section { margin-top: 1.5rem; }
+.detail-section h3 { font-family: var(--sans); font-size: 1rem; color: var(--text-secondary); margin: 0 0 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+.detail-files { list-style: none; padding: 0; margin: 0; }
+.detail-files li { font-family: var(--mono); font-size: 0.85rem; padding: 0.35rem 0; color: var(--text-secondary); }
+.detail-files .added { color: var(--green); }
+.detail-files .removed { color: var(--red); }
+.detail-comment { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+.detail-comment-header { font-family: var(--mono); font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
+.detail-comment-body { font-family: var(--sans); font-size: 0.9rem; color: var(--text-primary); line-height: 1.5; }
+.clickable-row { cursor: pointer; }
+.clickable-row:hover td { background: var(--bg-deep); }
+
 /* ═══ Repo detail view ═══ */
 .repo-detail { animation: fadeIn 200ms ease; }
 
@@ -1051,12 +1073,20 @@ a.commit-sha:hover { text-decoration: underline; }
       </table>
     </div>
 
+    <div id="repoSubViewIssueDetail" class="repo-sub-view" style="display:none">
+      <div id="issueDetailContent"></div>
+    </div>
+
     <div id="repoSubViewPulls" class="repo-sub-view" style="display:none">
       <div class="loading" id="loadingRepoPulls"><div class="spinner"></div> Loading pull requests...</div>
       <table class="data-table" id="tableRepoPulls" style="display:none">
         <thead><tr><th>#</th><th>Title</th><th>Author</th><th>Branch</th><th>CI</th><th>Updated</th></tr></thead>
         <tbody id="bodyRepoPulls"></tbody>
       </table>
+    </div>
+
+    <div id="repoSubViewPrDetail" class="repo-sub-view" style="display:none">
+      <div id="prDetailContent"></div>
     </div>
 
     <div id="repoSubViewActions" class="repo-sub-view" style="display:none">
@@ -1290,7 +1320,13 @@ function route() {
   if (parts.length >= 2) {
     const fullName = parts[0] + '/' + parts[1];
     const rest = parts.slice(2);
+    if (rest[0] === 'issues' && rest.length >= 2) {
+      showRepoView(fullName, 'issue-detail', null, null, rest[1]); return;
+    }
     if (rest[0] === 'issues') { showRepoView(fullName, 'issues'); return; }
+    if (rest[0] === 'pulls' && rest.length >= 2 && /^\d+$/.test(rest[1])) {
+      showRepoView(fullName, 'pr-detail', null, null, parseInt(rest[1])); return;
+    }
     if (rest[0] === 'pulls') { showRepoView(fullName, 'pulls'); return; }
     if (rest[0] === 'actions') { showRepoView(fullName, 'actions'); return; }
     if (rest[0] === 'tree' && rest.length >= 2) {
@@ -1325,7 +1361,7 @@ let currentBranch = '';
 let currentPath = '';
 let lastRepoView = '';
 
-async function showRepoView(fullName, subtab, branch, path) {
+async function showRepoView(fullName, subtab, branch, path, itemNumber) {
   // Hide all global views
   document.querySelectorAll('.main > .view:not(#viewRepo)').forEach(v => {
     v.classList.remove('active'); v.style.display = 'none';
@@ -1346,16 +1382,17 @@ async function showRepoView(fullName, subtab, branch, path) {
   document.getElementById('repoSubPulls').onclick = () => navigate(`#/${fullName}/pulls`);
   document.getElementById('repoSubActions').onclick = () => navigate(`#/${fullName}/actions`);
 
-  // Activate sub-tab
+  // Activate sub-tab — detail views highlight their parent tab
+  const parentTab = subtab === 'pr-detail' ? 'pulls' : subtab === 'issue-detail' ? 'issues' : subtab;
   document.querySelectorAll('#repoSubTabs .nav-tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.subtab === subtab)
+    t.classList.toggle('active', t.dataset.subtab === parentTab)
   );
   document.querySelectorAll('.repo-sub-view').forEach(v => v.style.display = 'none');
 
   // Branch selector only for code
   document.getElementById('branchSelect').style.display = subtab === 'code' ? '' : 'none';
 
-  const viewKey = fullName + '/' + subtab;
+  const viewKey = fullName + '/' + subtab + (itemNumber ? '/' + itemNumber : '');
   if (subtab === 'code') {
     document.getElementById('repoSubViewCode').style.display = '';
     if (currentRepo !== fullName) {
@@ -1372,9 +1409,15 @@ async function showRepoView(fullName, subtab, branch, path) {
   } else if (subtab === 'issues') {
     document.getElementById('repoSubViewIssues').style.display = '';
     if (lastRepoView !== viewKey) loadRepoIssues(fullName);
+  } else if (subtab === 'issue-detail') {
+    document.getElementById('repoSubViewIssueDetail').style.display = '';
+    loadIssueDetail(fullName, itemNumber);
   } else if (subtab === 'pulls') {
     document.getElementById('repoSubViewPulls').style.display = '';
     if (lastRepoView !== viewKey) loadRepoPulls(fullName);
+  } else if (subtab === 'pr-detail') {
+    document.getElementById('repoSubViewPrDetail').style.display = '';
+    loadPrDetail(fullName, itemNumber);
   } else if (subtab === 'actions') {
     document.getElementById('repoSubViewActions').style.display = '';
     if (lastRepoView !== viewKey) loadRepoActions(fullName);
@@ -1433,10 +1476,12 @@ function renderRepoIssues() {
     document.getElementById('countRepoIssues').textContent = all.length;
     return;
   }
+  const repoName = currentRepo;
   body.innerHTML = filtered.map(i => {
     const sg = i.state_detail?.group || i.state?.group || '';
-    return `<tr>
-      <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(i.project_identifier)}-${i.sequence_id || ''}</td>
+    const issueKey = `${i.project_identifier}-${i.sequence_id || ''}`;
+    return `<tr class="clickable-row" onclick="navigate('#/${repoName}/issues/${issueKey}')">
+      <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(issueKey)}</td>
       <td>${escHtml(i.name || '')}</td>
       <td><span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(i.state_detail?.name || i.state?.name || sg || 'unknown')}</span></td>
       <td><span class="${priorityClass[i.priority] || 'priority-none'}" style="font-family:var(--mono);font-size:0.8rem;text-transform:uppercase">${escHtml(i.priority || 'none')}</span></td>
@@ -1463,7 +1508,7 @@ async function loadRepoPulls(fullName) {
       const merged = p.merged;
       const stBadge = merged ? 'badge-purple' : p.state === 'open' ? 'badge-green' : 'badge-red';
       const stLabel = merged ? 'merged' : p.state;
-      return `<tr>
+      return `<tr class="clickable-row" onclick="navigate('#/${fullName}/pulls/${p.number}')">
       <td style="font-family:var(--mono);font-size:0.85rem;color:var(--accent)">#${p.number}</td>
       <td>${escHtml(p.title)}</td>
       <td style="font-size:0.85rem;color:var(--text-secondary)">${escHtml(p.user?.login || '')}</td>
@@ -1477,6 +1522,129 @@ async function loadRepoPulls(fullName) {
     document.getElementById('tableRepoPulls').style.display = 'table';
   } catch (e) {
     showError('loadingRepoPulls', 'tableRepoPulls', '&#x21C4;', 'Gitea', e, `loadRepoPulls('${fullName}')`);
+  }
+}
+
+async function loadPrDetail(fullName, prNumber) {
+  const el = document.getElementById('prDetailContent');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading pull request...</div>';
+  try {
+    const [pr, comments, reviews] = await Promise.all([
+      giteaFetch(`/repos/${fullName}/pulls/${prNumber}`),
+      giteaFetch(`/repos/${fullName}/issues/${prNumber}/comments`).catch(() => []),
+      giteaFetch(`/repos/${fullName}/pulls/${prNumber}/reviews`).catch(() => []),
+    ]);
+    const merged = pr.merged;
+    const stBadge = merged ? 'badge-purple' : pr.state === 'open' ? 'badge-green' : 'badge-red';
+    const stLabel = merged ? 'merged' : pr.state;
+    let html = `
+      <span class="detail-back" onclick="navigate('#/${fullName}/pulls')">&larr; Back to pull requests</span>
+      <div class="detail-header">
+        <h2>${escHtml(pr.title)} <span style="color:var(--text-muted);font-weight:normal">#${pr.number}</span></h2>
+        <div class="detail-meta">
+          <span class="badge ${stBadge}">${stLabel}</span>
+          <span>${escHtml(pr.user?.login || '')} wants to merge
+            <span class="badge badge-purple">${escHtml(pr.head?.ref || '')}</span> into
+            <span class="badge badge-muted">${escHtml(pr.base?.ref || '')}</span>
+          </span>
+          <span>${timeAgo(pr.merged_at || pr.updated_at)}</span>
+          <span>+${pr.additions || 0} / -${pr.deletions || 0}</span>
+        </div>
+      </div>`;
+    if (pr.body) {
+      html += `<div class="detail-body">${escHtml(pr.body).replace(/\n/g, '<br>')}</div>`;
+    }
+    // Files changed
+    try {
+      const files = await giteaFetch(`/repos/${fullName}/pulls/${prNumber}/files`);
+      if (files && files.length) {
+        html += `<div class="detail-section"><h3>Files changed (${files.length})</h3><ul class="detail-files">`;
+        for (const f of files) {
+          const cls = f.status === 'added' ? 'added' : f.status === 'removed' ? 'removed' : '';
+          html += `<li class="${cls}">${escHtml(f.filename)} <span style="color:var(--green)">+${f.additions}</span> <span style="color:var(--red)">-${f.deletions}</span></li>`;
+        }
+        html += '</ul></div>';
+      }
+    } catch {}
+    // Reviews & comments
+    const allComments = [
+      ...reviews.filter(r => r.body?.trim()).map(r => ({ author: r.user?.login, body: r.body, date: r.submitted_at, type: r.state })),
+      ...comments.map(c => ({ author: c.user?.login, body: c.body, date: c.created_at, type: 'comment' }))
+    ].sort((a, b) => new Date(a.date) - new Date(b.date));
+    if (allComments.length) {
+      html += `<div class="detail-section"><h3>Discussion (${allComments.length})</h3>`;
+      for (const c of allComments) {
+        const typeBadge = c.type && c.type !== 'comment' ? ` <span class="badge ${c.type === 'APPROVED' ? 'badge-green' : c.type === 'REQUEST_CHANGES' ? 'badge-red' : 'badge-muted'}">${c.type.toLowerCase()}</span>` : '';
+        html += `<div class="detail-comment">
+          <div class="detail-comment-header">${escHtml(c.author || '')}${typeBadge} &middot; ${timeAgo(c.date)}</div>
+          <div class="detail-comment-body">${escHtml(c.body || '').replace(/\n/g, '<br>')}</div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<span class="detail-back" onclick="navigate('#/${fullName}/pulls')">&larr; Back</span><div class="empty"><div class="empty-icon">&#x21C4;</div>Failed to load PR #${prNumber}: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function loadIssueDetail(fullName, issueKey) {
+  const el = document.getElementById('issueDetailContent');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading issue...</div>';
+  try {
+    const c = getConfig();
+    if (!c.planeToken || !c.planeWorkspace) throw new Error('Plane not configured');
+    // issueKey is like MEM-4 — use workspace-level lookup
+    const issue = await planeFetch(`/workspaces/${c.planeWorkspace}/work-items/${issueKey}/?expand=state,assignees`);
+    const sg = issue.state_detail?.group || issue.state?.group || '';
+    const stateGroup = { backlog: 'badge-muted', unstarted: 'badge-muted', started: 'badge-blue', completed: 'badge-green', cancelled: 'badge-red' };
+    const priorityClass = { urgent: 'priority-urgent', high: 'priority-high', medium: 'priority-medium', low: 'priority-low', none: 'priority-none' };
+    const stateName = issue.state_detail?.name || issue.state?.name || sg || 'unknown';
+    let html = `
+      <span class="detail-back" onclick="navigate('#/${fullName}/issues')">&larr; Back to issues</span>
+      <div class="detail-header">
+        <h2>${escHtml(issue.name || '')} <span style="color:var(--text-muted);font-weight:normal">${escHtml(issueKey)}</span></h2>
+        <div class="detail-meta">
+          <span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(stateName)}</span>
+          <span class="${priorityClass[issue.priority] || 'priority-none'}" style="font-family:var(--mono);font-size:0.8rem;text-transform:uppercase">${escHtml(issue.priority || 'none')}</span>
+          <span>${issue.assignee_detail?.[0]?.display_name || 'Unassigned'}</span>
+          <span>${timeAgo(issue.updated_at)}</span>
+        </div>
+      </div>`;
+    // Description
+    const descHtml = issue.description_html || '';
+    const descText = issue.description_stripped || descHtml.replace(/<[^>]+>/g, '');
+    if (descText.trim()) {
+      html += `<div class="detail-body">${descHtml || escHtml(descText).replace(/\n/g, '<br>')}</div>`;
+    }
+    // Comments
+    try {
+      const projId = issue.project;
+      if (projId) {
+        const comments = await planeFetch(`/workspaces/${c.planeWorkspace}/projects/${projId}/work-items/${issue.id}/comments/`);
+        const commentList = comments.results || comments || [];
+        if (commentList.length) {
+          html += `<div class="detail-section"><h3>Comments (${commentList.length})</h3>`;
+          for (const cm of commentList) {
+            html += `<div class="detail-comment">
+              <div class="detail-comment-header">${escHtml(cm.actor_detail?.display_name || '')} &middot; ${timeAgo(cm.created_at)}</div>
+              <div class="detail-comment-body">${cm.comment_html || escHtml(cm.comment_stripped || '').replace(/\n/g, '<br>')}</div>
+            </div>`;
+          }
+          html += '</div>';
+        }
+      }
+    } catch {}
+    // Metadata
+    html += `<div class="detail-section"><h3>Details</h3><table class="data-table"><tbody>`;
+    if (issue.start_date) html += `<tr><td style="color:var(--text-secondary)">Start</td><td>${issue.start_date}</td></tr>`;
+    if (issue.target_date) html += `<tr><td style="color:var(--text-secondary)">Due</td><td>${issue.target_date}</td></tr>`;
+    if (issue.label_detail?.length) html += `<tr><td style="color:var(--text-secondary)">Labels</td><td>${issue.label_detail.map(l => `<span class="badge badge-muted">${escHtml(l.name)}</span>`).join(' ')}</td></tr>`;
+    html += `<tr><td style="color:var(--text-secondary)">Created</td><td>${timeAgo(issue.created_at)}</td></tr>`;
+    html += `</tbody></table></div>`;
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<span class="detail-back" onclick="navigate('#/${fullName}/issues')">&larr; Back</span><div class="empty"><div class="empty-icon">&#x25CB;</div>Failed to load ${escHtml(issueKey)}: ${escHtml(e.message)}</div>`;
   }
 }
 
@@ -1676,7 +1844,7 @@ async function loadIssues() {
       try {
         const items = await planeFetch(`/workspaces/${c.planeWorkspace}/projects/${p.id}/work-items/?expand=state,assignees`);
         const results = items.results || items || [];
-        allIssues.push(...results.map(i => ({ ...i, project_identifier: p.identifier })));
+        allIssues.push(...results.map(i => ({ ...i, project_identifier: p.identifier, project_name: p.name })));
       } catch { /* individual project failure is non-fatal */ }
     }
     const showClosed = document.getElementById('showClosedGlobalIssues').checked;
@@ -1693,11 +1861,14 @@ async function loadIssues() {
       document.getElementById('countIssues').textContent = allIssues.length;
       return;
     }
+    const giteaOwner = localStorage.getItem('tagbag_gitea_user') || c.planeWorkspace;
     body.innerHTML = filtered.map(i => {
       const sg = i.state_detail?.group || i.state?.group || '';
+      const issueKey = `${i.project_identifier}-${i.sequence_id || ''}`;
+      const repoName = (i.project_name || '').toLowerCase();
       return `
-      <tr>
-        <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(i.project_identifier)}-${i.sequence_id || ''}</td>
+      <tr class="clickable-row" onclick="navigate('#/${giteaOwner}/${repoName}/issues/${issueKey}')">
+        <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(issueKey)}</td>
         <td>${escHtml(i.name || '')}</td>
         <td><span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(i.state_detail?.name || i.state?.name || sg || 'unknown')}</span></td>
         <td><span class="${priorityClass[i.priority] || 'priority-none'}" style="font-family:var(--mono);font-size:0.8rem;text-transform:uppercase">${escHtml(i.priority || 'none')}</span></td>
@@ -1737,7 +1908,7 @@ async function loadPrs() {
       const stBadge = merged ? 'badge-purple' : p.state === 'open' ? 'badge-green' : 'badge-red';
       const stLabel = merged ? 'merged' : p.state;
       return `
-      <tr>
+      <tr class="clickable-row" onclick="navigate('#/${escHtml(p.repo)}/pulls/${p.number}')">
         <td style="font-family:var(--mono);font-size:0.85rem;color:var(--accent)">#${p.number}</td>
         <td>
           <div>${escHtml(p.title)}</div>
