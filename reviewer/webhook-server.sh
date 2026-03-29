@@ -37,10 +37,6 @@ verify_signature() {
     return 0
 }
 
-REVIEW_QUEUE_MAX="${TAGBAG_REVIEW_QUEUE_MAX:-50}"
-REVIEW_QUEUE_WARN="${TAGBAG_REVIEW_QUEUE_WARN:-10}"
-REVIEW_QUEUE_LOCK="${REVIEW_QUEUE}.lock"
-
 log "TagBag Code Reviewer starting on port ${REVIEW_PORT}"
 log "Queue: ${REVIEW_QUEUE}"
 log "Log: ${REVIEW_LOG}"
