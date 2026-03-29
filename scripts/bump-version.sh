@@ -10,7 +10,13 @@ NEW_MINOR=$((minor + 1))
 NEW_VERSION="${major}.${NEW_MINOR}.0"
 
 echo "$NEW_VERSION" > "$VERSION_FILE"
-git add "$VERSION_FILE"
+
+# Patch version into dashboard footer and README
+ROOT="$(git rev-parse --show-toplevel)"
+sed -i '' "s/TagBag v${CURRENT}/TagBag v${NEW_VERSION}/" "${ROOT}/web/index.html"
+sed -i '' "s/v${CURRENT}/v${NEW_VERSION}/" "${ROOT}/README.md"
+
+git add "$VERSION_FILE" "${ROOT}/web/index.html" "${ROOT}/README.md"
 git commit -m "bump version to v${NEW_VERSION}"
 git tag -a "v${NEW_VERSION}" -m "v${NEW_VERSION}"
 

@@ -2291,9 +2291,7 @@ async function loadServerConfig() {
 
 // ═══ Init ═══
 loadServerConfig().then(() => tryAutoLogin());
-fetch('/VERSION').then(r => r.ok ? r.text() : '').then(v => {
-  if (v.trim()) document.getElementById('footerVersion').textContent = `TagBag v${v.trim()}`;
-}).catch(() => {});
+document.getElementById('footerVersion').textContent = 'TagBag v0.27.0';
 </script>
 </body>
 </html>
