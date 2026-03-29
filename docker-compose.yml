@@ -471,6 +471,7 @@ services:
     volumes:
       - ./web:/usr/share/nginx/html:ro
       - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./VERSION:/usr/share/nginx/html/VERSION:ro
     ports:
       - "8888:80"
     deploy:

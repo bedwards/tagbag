@@ -2,7 +2,7 @@
 
 Self-hosted GitHub replacement. Built from source. All the keys to the castle.
 
-**Current version: v0.26.0**
+**Current version: v0.27.0**
 
 ## What
 
@@ -79,11 +79,11 @@ tb bridge start|stop|status|logs|register
 
 ### AI Code Review
 
-The **reviewer** runs Claude and Gemini in parallel on every push. Both post review issues to Gitea and set commit statuses. Use `tb reviewer register` to set up the webhook and `tb reviewer protect` to enforce reviews on branches.
+The **reviewer** runs Claude and Gemini in parallel on every push. Reviews are posted as PR comments (when the push is to a PR branch) and commit statuses are set on every reviewed commit. Deferred issues go to Plane as work items. New repos get the reviewer webhook automatically; use `tb reviewer register --all` to backfill existing repos, and `tb reviewer protect` to enforce reviews on branches.
 
 ### GitHub Mirror
 
-Every push automatically mirrors code (branches + tags) to a private GitHub repo via `gh` CLI. Issues sync bidirectionally between Gitea and GitHub using embedded markers to track pairs. All writes go to TagBag; GitHub is a read-only mirror. No second remote needed.
+Every push automatically mirrors code (branches + tags) to a private GitHub repo via `gh` CLI. Issues sync bidirectionally between Plane and GitHub using embedded markers to track pairs. All writes go to TagBag; GitHub is a read-only mirror. No second remote needed.
 
 ### Bridge
 
@@ -154,7 +154,7 @@ GitHub Actions runs on every push and PR. See `.github/workflows/ci.yml`.
 | `web/index.html` | Dashboard SPA |
 | `web/nginx.conf` | Reverse proxy config |
 | `mirror/github-sync.sh` | Code mirror (branches + tags) to GitHub |
-| `mirror/issue-sync.sh` | Bidirectional issue sync (Gitea ↔ GitHub) |
+| `mirror/issue-sync.sh` | Bidirectional issue sync (Plane ↔ GitHub) |
 | `reviewer/webhook-server.sh` | Webhook receiver + review queue |
 | `reviewer/do-review.sh` | Claude code review |
 | `reviewer/do-review-gemini.sh` | Gemini code review |

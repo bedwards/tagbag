@@ -1500,6 +1500,7 @@ main() {
             --json)            OUTPUT_JSON=true; shift ;;
             --quiet|-q)        QUIET=true; shift ;;
             --help|-h)         show_help; exit 0 ;;
+            --version|-V)      echo "tagbag v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo unknown)"; exit 0 ;;
             --)                shift; break ;;
             -*)                die "Unknown global option: $1" ;;
             *)                 break ;;
@@ -1514,6 +1515,7 @@ main() {
 
     case "$cmd" in
         help|--help|-h) show_help ;;
+        version)        echo "tagbag v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo unknown)" ;;
         login)          cmd_login "$@" ;;
         whoami)         cmd_whoami ;;
         status)         cmd_status ;;

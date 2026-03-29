@@ -661,6 +661,9 @@ a.commit-sha:hover { text-decoration: underline; }
 .clickable-row { cursor: pointer; }
 .clickable-row:hover td { background: var(--bg-deep); }
 
+/* ═══ Footer ═══ */
+.site-footer { padding: 1rem 2rem; text-align: center; font-family: var(--mono); font-size: 0.75rem; color: var(--text-muted); border-top: 1px solid var(--border); }
+
 /* ═══ Repo detail view ═══ */
 .repo-detail { animation: fadeIn 200ms ease; }
 
@@ -1138,6 +1141,10 @@ a.commit-sha:hover { text-decoration: underline; }
   </div>
 
 </main>
+
+<footer class="site-footer">
+  <span id="footerVersion">TagBag</span>
+</footer>
 
 <!-- ═══ Settings Modal ═══ -->
 <div class="modal-overlay" id="settingsModal">
@@ -2284,6 +2291,9 @@ async function loadServerConfig() {
 
 // ═══ Init ═══
 loadServerConfig().then(() => tryAutoLogin());
+fetch('/VERSION').then(r => r.ok ? r.text() : '').then(v => {
+  if (v.trim()) document.getElementById('footerVersion').textContent = `TagBag v${v.trim()}`;
+}).catch(() => {});
 </script>
 </body>
 </html>
