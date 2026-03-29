@@ -810,6 +810,24 @@ cmd_logs() {
 
 TMUX_SESSION="tagbag-reviewer"
 
+# Register reviewer webhook on a repo (idempotent — skips if already registered)
+register_reviewer_webhook() {
+    local repo="$1"
+    require_gitea_token
+    local webhook_url="http://host.docker.internal:${TAGBAG_REVIEW_PORT:-9876}"
+    # Check if webhook already exists
+    local existing
+    existing=$(gitea_api GET "/repos/${repo}/hooks" 2>/dev/null || echo "[]")
+    if echo "$existing" | jq -e --arg url "$webhook_url" '.[] | select(.config.url == $url)' &>/dev/null; then
+        info "Webhook already registered on ${repo}"
+        return 0
+    fi
+    info "Registering reviewer webhook for ${repo} → ${webhook_url}"
+    gitea_api POST "/repos/${repo}/hooks" \
+        -d "$(jq -n --arg url "$webhook_url" \
+            '{type:"gitea",active:true,config:{url:$url,content_type:"json"},events:["push"]}')" | jq '{id, url: .config.url, events, active}'
+}
+
 reviewer_help() {
     cat <<'EOF'
 tagbag reviewer — manage the Claude Code reviewer tmux session
@@ -902,13 +920,18 @@ cmd_reviewer() {
             ;;
 
         register)
-            local repo="${1:?Usage: tagbag reviewer register <owner/repo>}"
-            require_gitea_token
-            local webhook_url="http://host.docker.internal:${TAGBAG_REVIEW_PORT:-9876}"
-            info "Registering webhook for ${repo} → ${webhook_url}"
-            gitea_api POST "/repos/${repo}/hooks" \
-                -d "$(jq -n --arg url "$webhook_url" \
-                    '{type:"gitea",active:true,config:{url:$url,content_type:"json"},events:["push"]}')" | jq '{id, url: .config.url, events, active}' ;;
+            local repo="${1:---all}"
+            if [[ "$repo" == "--all" ]]; then
+                require_gitea_token
+                local repos_json
+                repos_json=$(gitea_api GET "/repos/search?limit=50")
+                echo "$repos_json" | jq -r '.data[].full_name' | while read -r r; do
+                    register_reviewer_webhook "$r"
+                done
+            else
+                register_reviewer_webhook "$repo"
+            fi
+            ;;
 
         protect)
             local repo="${1:?Usage: tagbag reviewer protect <owner/repo> [--branch main]}"
@@ -1203,6 +1226,9 @@ cmd_repo_create() {
     else
         info "No commits yet — push when ready"
     fi
+
+    # Auto-register reviewer webhook
+    register_reviewer_webhook "${user}/${name}" 2>/dev/null || true
 }
 
 # ─── Clone Command ───────────────────────────────────────────────────────────
