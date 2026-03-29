@@ -1079,6 +1079,9 @@ a.commit-sha:hover { text-decoration: underline; }
 
   <!-- Issues View -->
   <div class="view" id="viewIssues">
+    <div class="filter-bar" id="globalIssueFilterBar">
+      <label><input type="checkbox" id="showClosedGlobalIssues" onchange="loadIssues()"> Show completed</label>
+    </div>
     <div class="loading" id="loadingIssues"><div class="spinner"></div> Loading work items...</div>
     <table class="data-table" id="tableIssues" style="display:none">
       <thead><tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>Assignee</th><th>Updated</th></tr></thead>
@@ -1435,7 +1438,7 @@ function renderRepoIssues() {
     return `<tr>
       <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(i.project_identifier)}-${i.sequence_id || ''}</td>
       <td>${escHtml(i.name || '')}</td>
-      <td><span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(i.state_detail?.name || sg || 'unknown')}</span></td>
+      <td><span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(i.state_detail?.name || i.state?.name || sg || 'unknown')}</span></td>
       <td><span class="${priorityClass[i.priority] || 'priority-none'}" style="font-family:var(--mono);font-size:0.8rem;text-transform:uppercase">${escHtml(i.priority || 'none')}</span></td>
       <td style="font-size:0.8rem;color:var(--text-secondary)">${i.assignee_detail?.[0]?.display_name || '-'}</td>
       <td><span class="time-ago">${timeAgo(i.updated_at)}</span></td>
@@ -1671,20 +1674,27 @@ async function loadIssues() {
         allIssues.push(...results.map(i => ({ ...i, project_identifier: p.identifier })));
       } catch { /* individual project failure is non-fatal */ }
     }
+    const showClosed = document.getElementById('showClosedGlobalIssues').checked;
+    const completedGroups = ['completed', 'cancelled'];
+    const filtered = showClosed ? allIssues : allIssues.filter(i => {
+      const sg = i.state_detail?.group || i.state?.group || '';
+      return !completedGroups.includes(sg);
+    });
     const stateGroup = { backlog: 'badge-muted', unstarted: 'badge-muted', started: 'badge-blue', completed: 'badge-green', cancelled: 'badge-red' };
     const priorityClass = { urgent: 'priority-urgent', high: 'priority-high', medium: 'priority-medium', low: 'priority-low', none: 'priority-none' };
     const body = document.getElementById('bodyIssues');
-    if (!allIssues.length) {
-      document.getElementById('loadingIssues').innerHTML = '<div class="empty"><div class="empty-icon">&#x25CB;</div>No work items found</div>';
+    if (!filtered.length) {
+      document.getElementById('loadingIssues').innerHTML = `<div class="empty"><div class="empty-icon">&#x25CB;</div>${showClosed ? 'No work items found' : 'No open work items'}</div>`;
+      document.getElementById('countIssues').textContent = allIssues.length;
       return;
     }
-    body.innerHTML = allIssues.map(i => {
+    body.innerHTML = filtered.map(i => {
       const sg = i.state_detail?.group || i.state?.group || '';
       return `
       <tr>
         <td style="font-family:var(--mono);font-size:0.8rem;color:var(--text-secondary)">${escHtml(i.project_identifier)}-${i.sequence_id || ''}</td>
         <td>${escHtml(i.name || '')}</td>
-        <td><span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(i.state_detail?.name || sg || 'unknown')}</span></td>
+        <td><span class="badge ${stateGroup[sg] || 'badge-muted'}">${escHtml(i.state_detail?.name || i.state?.name || sg || 'unknown')}</span></td>
         <td><span class="${priorityClass[i.priority] || 'priority-none'}" style="font-family:var(--mono);font-size:0.8rem;text-transform:uppercase">${escHtml(i.priority || 'none')}</span></td>
         <td style="font-size:0.8rem;color:var(--text-secondary)">${i.assignee_detail?.[0]?.display_name || '-'}</td>
         <td><span class="time-ago">${timeAgo(i.updated_at)}</span></td>
