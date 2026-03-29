@@ -14,6 +14,9 @@ TAGBAG_CONFIG="${TAGBAG_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/tagbag/config}
 
 GITEA_URL="${GITEA_URL:-http://localhost:3000}"
 GITEA_TOKEN="${GITEA_TOKEN:-}"
+PLANE_URL="${PLANE_URL:-http://localhost:8080}"
+PLANE_API_TOKEN="${PLANE_API_TOKEN:-}"
+PLANE_WORKSPACE="${PLANE_WORKSPACE:-}"
 CLONE_DIR="${TAGBAG_CLONE_DIR:-$HOME/vibe/tagbag-clones}"
 
 log() { echo "[review] [$(date +%Y-%m-%dT%H:%M:%S)] $*"; }
@@ -29,6 +32,46 @@ set_status() {
         -d "$(jq -n --arg s "$state" --arg d "$desc" --arg c "tagbag-reviewer" --arg u "${GITEA_URL}/${REPO}" \
             '{state: $s, description: $d, context: $c, target_url: $u}')" \
         "${GITEA_URL}/api/v1/repos/${REPO}/statuses/${SHA}" > /dev/null
+}
+
+# Find open PR for this branch
+find_pr_for_ref() {
+    local branch="${REF#refs/heads/}"
+    if [[ -z "$branch" || "$branch" == "refs/heads/" ]]; then return; fi
+    curl -sf -H "Authorization: token $GITEA_TOKEN" \
+        "${GITEA_URL}/api/v1/repos/${REPO}/pulls?state=open&limit=50" 2>/dev/null | \
+        jq -r --arg b "$branch" '.[] | select(.head.ref == $b) | .number' | head -1
+}
+
+# Create a Plane work item for deferred items
+create_plane_issue() {
+    local title="$1" body="$2"
+    if [[ -z "$PLANE_API_TOKEN" || -z "$PLANE_WORKSPACE" ]]; then
+        log "SKIP deferred issue (Plane not configured): $title"
+        return
+    fi
+    local repo_name="${REPO##*/}"
+    # Find Plane project matching repo name
+    local proj_id
+    proj_id=$(curl -sf "${PLANE_URL}/api/v1/workspaces/${PLANE_WORKSPACE}/projects/" \
+        -H "X-Api-Key: $PLANE_API_TOKEN" 2>/dev/null | \
+        jq -r --arg name "$repo_name" '(.results // .)[] | select(.name | ascii_downcase == ($name | ascii_downcase)) | .id' | head -1)
+    if [[ -z "$proj_id" || "$proj_id" == "null" ]]; then
+        log "SKIP deferred issue (no Plane project for $repo_name): $title"
+        return
+    fi
+    local result
+    result=$(curl -sf -X POST "${PLANE_URL}/api/v1/workspaces/${PLANE_WORKSPACE}/projects/${proj_id}/work-items/" \
+        -H "X-Api-Key: $PLANE_API_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n --arg t "$title" --arg b "$body" '{name: $t, description_html: ("<p>" + $b + "</p>")}')" 2>/dev/null)
+    local seq
+    seq=$(echo "$result" | jq -r '.sequence_id // empty' 2>/dev/null)
+    if [[ -n "$seq" ]]; then
+        log "Created Plane issue: $title"
+    else
+        log "FAILED to create Plane issue: $title"
+    fi
 }
 
 log "Reviewing ${REPO}@${SHA:0:8}"
@@ -104,48 +147,38 @@ if echo "$REVIEW_OUTPUT" | grep -qi "BLOCKER"; then
     HAS_BLOCKERS=true
 fi
 
-# Create issues for deferred items
-ISSUE_LINKS=""
+# Create Plane work items for deferred items
 while IFS= read -r deferred_line; do
     if [[ -n "$deferred_line" ]]; then
         issue_title=$(echo "$deferred_line" | sed 's/^.*DEFERRED: //' | head -c 200)
-        issue_resp=$(curl -sf -X POST \
-            -H "Authorization: token $GITEA_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg t "$issue_title" --arg b "Found during review of ${SHA:0:8}.\n\nContext: ${REF}" \
-                '{title: $t, body: $b}')" \
-            "${GITEA_URL}/api/v1/repos/${REPO}/issues" 2>/dev/null || echo "")
-        if [[ -n "$issue_resp" ]]; then
-            issue_num=$(echo "$issue_resp" | jq -r '.number // empty')
-            issue_url=$(echo "$issue_resp" | jq -r '.html_url // empty')
-            if [[ -n "$issue_num" ]]; then
-                ISSUE_LINKS="${ISSUE_LINKS}\n- #${issue_num}: ${issue_title} (${issue_url})"
-                log "Created issue #${issue_num}: ${issue_title}"
-            fi
-        fi
+        create_plane_issue "$issue_title" "Found during Claude review of ${SHA:0:8} on ${REF}."
     fi
 done < <(echo "$REVIEW_OUTPUT" | grep -i "DEFERRED:" || true)
 
 # Build the review comment
-COMMENT="## Code Review — ${SHA:0:8}
+COMMENT="## Claude Code Review — ${SHA:0:8}
 
 ${REVIEW_OUTPUT}"
 
-if [[ -n "$ISSUE_LINKS" ]]; then
-    COMMENT="${COMMENT}
-
-### Created Issues
-$(echo -e "$ISSUE_LINKS")"
+# Post review: as PR comment if there's an open PR, otherwise as commit comment
+PR_NUMBER=$(find_pr_for_ref)
+if [[ -n "$PR_NUMBER" ]]; then
+    log "Posting review as comment on PR #${PR_NUMBER}"
+    curl -sf -X POST \
+        -H "Authorization: token $GITEA_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n --arg b "$COMMENT" '{body: $b}')" \
+        "${GITEA_URL}/api/v1/repos/${REPO}/issues/${PR_NUMBER}/comments" > /dev/null 2>&1 || \
+        log "Warning: could not post PR comment"
+else
+    log "No open PR for ${REF} — posting as commit comment"
+    curl -sf -X POST \
+        -H "Authorization: token $GITEA_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n --arg b "$COMMENT" '{body: $b}')" \
+        "${GITEA_URL}/api/v1/repos/${REPO}/git/notes/${SHA}" > /dev/null 2>&1 || \
+        log "Warning: could not post commit note"
 fi
-
-# Post review as an issue on the repo (Gitea has no commit comment API)
-issue_title="[Claude Review] ${SHA:0:8}"
-curl -sf -X POST \
-    -H "Authorization: token $GITEA_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$(jq -n --arg t "$issue_title" --arg b "$COMMENT" '{title: $t, body: $b}')" \
-    "${GITEA_URL}/api/v1/repos/${REPO}/issues" > /dev/null 2>&1 || \
-    log "Warning: could not post review issue"
 
 # Set final commit status
 if [[ "$HAS_BLOCKERS" == "true" ]]; then
