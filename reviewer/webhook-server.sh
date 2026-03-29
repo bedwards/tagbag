@@ -55,11 +55,18 @@ process_queue() {
             ')
             if [[ -n "$line" ]]; then
                 log "Processing: $line"
-                # Mirror to GitHub (fire and forget)
-                MIRROR_SCRIPT="${SCRIPT_DIR}/../mirror/github-sync.sh"
-                if [[ -x "$MIRROR_SCRIPT" ]] && command -v gh &>/dev/null; then
-                    # shellcheck disable=SC2086
-                    bash "$MIRROR_SCRIPT" $line 2>&1 | tee -a "$REVIEW_LOG" &
+                # Mirror to GitHub: code + issues (fire and forget)
+                MIRROR_DIR="${SCRIPT_DIR}/../mirror"
+                if command -v gh &>/dev/null; then
+                    if [[ -x "${MIRROR_DIR}/github-sync.sh" ]]; then
+                        # shellcheck disable=SC2086
+                        bash "${MIRROR_DIR}/github-sync.sh" $line 2>&1 | tee -a "$REVIEW_LOG" &
+                    fi
+                    if [[ -x "${MIRROR_DIR}/issue-sync.sh" ]]; then
+                        # Extract just the repo name (first field)
+                        sync_repo="${line%% *}"
+                        bash "${MIRROR_DIR}/issue-sync.sh" "$sync_repo" 2>&1 | tee -a "$REVIEW_LOG" &
+                    fi
                 fi
                 # Run Claude and Gemini reviews in parallel
                 # shellcheck disable=SC2086

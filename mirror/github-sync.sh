@@ -34,7 +34,6 @@ if ! gh repo view "$GH_REPO" &>/dev/null; then
     gh repo create "$GH_REPO" \
         --private \
         --disable-wiki \
-        --disable-issues \
         --description "Mirror of ${GITEA_URL}/${REPO} (read-only)" \
         2>&1 || {
         log "ERROR: Failed to create GitHub repo ${GH_REPO}"

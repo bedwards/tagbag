@@ -616,6 +616,294 @@ a.commit-sha:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 
+/* ═══ Repo detail view ═══ */
+.repo-detail { animation: fadeIn 200ms ease; }
+
+.repo-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+.btn-back:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+.repo-detail-title {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--accent);
+}
+
+.branch-select {
+  padding: 5px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition);
+  margin-left: auto;
+}
+
+.branch-select:focus { border-color: var(--accent-dim); }
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  margin-bottom: 1rem;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+
+.breadcrumb-item {
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.breadcrumb-item:hover { color: var(--accent); }
+.breadcrumb-item.current { color: var(--text-primary); cursor: default; }
+.breadcrumb-sep { color: var(--text-muted); user-select: none; }
+
+/* File tree */
+.file-tree {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.file-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background var(--transition);
+  font-size: 0.9rem;
+}
+
+.file-entry:last-child { border-bottom: none; }
+.file-entry:hover { background: var(--bg-hover); }
+
+.file-icon {
+  font-size: 0.85rem;
+  width: 1.2em;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.file-icon.dir { color: var(--accent); }
+.file-icon.file { color: var(--text-muted); }
+
+.file-name {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.file-entry.dir .file-name { color: var(--accent); }
+
+.file-size {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.file-msg {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+/* File content view */
+.file-content-view {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.file-content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.file-content-body {
+  padding: 1rem;
+  overflow-x: auto;
+  background: var(--bg-deep);
+}
+
+.file-content-body pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre;
+  margin: 0;
+}
+
+.file-content-body table.code-lines {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.file-content-body .line-num {
+  padding: 0 1rem 0 0.5rem;
+  text-align: right;
+  color: var(--text-muted);
+  user-select: none;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  vertical-align: top;
+  width: 1%;
+}
+
+.file-content-body .line-code {
+  padding: 0 0.5rem;
+  white-space: pre;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+/* README */
+.readme-container {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.readme-header {
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.readme-body {
+  padding: 1.5rem;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.readme-body h1, .readme-body h2, .readme-body h3, .readme-body h4 {
+  font-family: var(--sans);
+  color: var(--text-primary);
+  margin: 1.5em 0 0.5em;
+  line-height: 1.3;
+}
+
+.readme-body h1 { font-size: 1.5rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.3em; }
+.readme-body h2 { font-size: 1.25rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.3em; }
+.readme-body h3 { font-size: 1.05rem; }
+.readme-body h1:first-child, .readme-body h2:first-child { margin-top: 0; }
+
+.readme-body p { margin: 0.75em 0; }
+
+.readme-body code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--bg-elevated);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.readme-body pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+.readme-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.readme-body a { color: var(--accent); text-decoration: none; }
+.readme-body a:hover { text-decoration: underline; }
+
+.readme-body ul, .readme-body ol { padding-left: 1.5em; margin: 0.5em 0; }
+.readme-body li { margin: 0.25em 0; }
+
+.readme-body blockquote {
+  border-left: 3px solid var(--accent-dim);
+  padding: 0.25em 1em;
+  margin: 0.75em 0;
+  color: var(--text-secondary);
+}
+
+.readme-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75em 0;
+}
+
+.readme-body th, .readme-body td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+.readme-body th {
+  background: var(--bg-surface);
+  font-weight: 600;
+}
+
+.readme-body img { max-width: 100%; border-radius: var(--radius); }
+
 /* ═══ Responsive ═══ */
 @media (max-width: 768px) {
   .topbar { padding: 0 0.75rem; gap: 0.5rem; }
@@ -706,6 +994,17 @@ a.commit-sha:hover { text-decoration: underline; }
       <thead><tr><th>Repository</th><th>Last Commit</th><th>Updated</th><th>&#x2605;</th></tr></thead>
       <tbody id="bodyCode"></tbody>
     </table>
+    <!-- Inline repo detail view (replaces repo list when active) -->
+    <div id="repoDetail" style="display:none" class="repo-detail">
+      <div class="repo-detail-header">
+        <button class="btn-back" onclick="closeRepoDetail()">&#x2190; Repos</button>
+        <span class="repo-detail-title" id="repoDetailTitle"></span>
+        <select class="branch-select" id="branchSelect" onchange="onBranchChange()"></select>
+      </div>
+      <div class="breadcrumbs" id="breadcrumbs"></div>
+      <div id="repoTreeContainer"></div>
+      <div id="repoReadme"></div>
+    </div>
   </div>
 
   <!-- Commits View -->
@@ -913,11 +1212,6 @@ function formatTime(date) {
   return date.toLocaleTimeString();
 }
 
-// ═══ Gitea web URL (direct to Gitea, not through proxy) ═══
-function giteaWebUrl() {
-  return 'http://localhost:3000';
-}
-
 // ═══ Tab switching ═══
 function switchTab(view) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
@@ -1004,10 +1298,10 @@ async function loadCode() {
     body.innerHTML = repos.map(r => `
       <tr>
         <td>
-          <a class="repo-name" href="${giteaWebUrl()}/${escHtml(r.full_name)}">${escHtml(r.full_name)}</a>
+          <span class="repo-name" style="cursor:pointer" onclick="openRepo('${escHtml(r.full_name)}','${escHtml(r.default_branch || 'main')}')">${escHtml(r.full_name)}</span>
           <div class="repo-desc">${escHtml(r.description || '')}</div>
         </td>
-        <td><a class="commit-sha" href="${giteaWebUrl()}/${escHtml(r.full_name)}/src/branch/${escHtml(r.default_branch || 'main')}">${escHtml(r.default_branch || 'main')}</a></td>
+        <td><span class="badge badge-purple" style="cursor:pointer" onclick="openRepo('${escHtml(r.full_name)}','${escHtml(r.default_branch || 'main')}')">${escHtml(r.default_branch || 'main')}</span></td>
         <td><span class="time-ago">${timeAgo(r.updated_at)}</span></td>
         <td style="font-family:var(--mono);color:var(--text-muted);font-size:0.8rem">${r.stars_count || 0}</td>
       </tr>
@@ -1184,6 +1478,222 @@ async function loadActions() {
     document.getElementById('tableActions').style.display = 'table';
   } catch (e) {
     showError('loadingActions', 'tableActions', '&#x25B6;', 'Woodpecker', e, 'loadActions()');
+  }
+}
+
+// ═══ Repo Detail View ═══
+let currentRepo = '';
+let currentBranch = '';
+let currentPath = '';
+
+async function openRepo(fullName, branch) {
+  currentRepo = fullName;
+  currentBranch = branch || 'main';
+  currentPath = '';
+
+  // Hide repo list, show detail
+  document.getElementById('loadingCode').style.display = 'none';
+  document.getElementById('tableCode').style.display = 'none';
+  const detail = document.getElementById('repoDetail');
+  detail.style.display = '';
+  document.getElementById('repoDetailTitle').textContent = fullName;
+
+  // Load branches and tree in parallel
+  loadBranches(fullName, currentBranch);
+  loadRepoTree(fullName, currentBranch, '');
+}
+
+function closeRepoDetail() {
+  document.getElementById('repoDetail').style.display = 'none';
+  currentRepo = '';
+  currentBranch = '';
+  currentPath = '';
+  loadCode();
+}
+
+async function loadBranches(fullName, activeBranch) {
+  const sel = document.getElementById('branchSelect');
+  sel.innerHTML = '<option>loading...</option>';
+  try {
+    const branches = await giteaFetch(`/repos/${fullName}/branches`);
+    sel.innerHTML = branches.map(b =>
+      `<option value="${escHtml(b.name)}" ${b.name === activeBranch ? 'selected' : ''}>${escHtml(b.name)}</option>`
+    ).join('');
+  } catch {
+    sel.innerHTML = `<option>${escHtml(activeBranch)}</option>`;
+  }
+}
+
+function onBranchChange() {
+  currentBranch = document.getElementById('branchSelect').value;
+  currentPath = '';
+  loadRepoTree(currentRepo, currentBranch, '');
+}
+
+function buildBreadcrumbs(fullName, branch, path) {
+  const bc = document.getElementById('breadcrumbs');
+  const parts = path ? path.split('/').filter(Boolean) : [];
+  let html = `<span class="breadcrumb-item" onclick="navigatePath('${escHtml(fullName)}','${escHtml(branch)}','')">${escHtml(fullName.split('/')[1] || fullName)}</span>`;
+  let accumulated = '';
+  for (let i = 0; i < parts.length; i++) {
+    accumulated += (accumulated ? '/' : '') + parts[i];
+    const isLast = i === parts.length - 1;
+    html += `<span class="breadcrumb-sep">/</span>`;
+    if (isLast) {
+      html += `<span class="breadcrumb-item current">${escHtml(parts[i])}</span>`;
+    } else {
+      html += `<span class="breadcrumb-item" onclick="navigatePath('${escHtml(fullName)}','${escHtml(branch)}','${escHtml(accumulated)}')">${escHtml(parts[i])}</span>`;
+    }
+  }
+  bc.innerHTML = html;
+}
+
+function navigatePath(fullName, branch, path) {
+  currentPath = path;
+  loadRepoTree(fullName, branch, path);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function loadRepoTree(fullName, branch, path) {
+  currentPath = path;
+  buildBreadcrumbs(fullName, branch, path);
+  const container = document.getElementById('repoTreeContainer');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div> Loading...</div>';
+  document.getElementById('repoReadme').innerHTML = '';
+
+  try {
+    const apiPath = path ? `/repos/${fullName}/contents/${path}?ref=${encodeURIComponent(branch)}` : `/repos/${fullName}/contents?ref=${encodeURIComponent(branch)}`;
+    const data = await giteaFetch(apiPath);
+
+    // Single file
+    if (!Array.isArray(data)) {
+      showFileContent(data, fullName, branch);
+      return;
+    }
+
+    // Directory listing — sort: dirs first, then files, alphabetical
+    const entries = data.sort((a, b) => {
+      if (a.type === 'dir' && b.type !== 'dir') return -1;
+      if (a.type !== 'dir' && b.type === 'dir') return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    container.innerHTML = `<div class="file-tree">${entries.map(e => {
+      const isDir = e.type === 'dir';
+      const entryPath = path ? path + '/' + e.name : e.name;
+      return `<div class="file-entry ${isDir ? 'dir' : ''}" onclick="navigatePath('${escHtml(fullName)}','${escHtml(branch)}','${escHtml(entryPath)}')">
+        <span class="file-icon ${isDir ? 'dir' : 'file'}">${isDir ? '&#x1F4C1;' : '&#x1F4C4;'}</span>
+        <span class="file-name">${escHtml(e.name)}</span>
+        ${!isDir && e.size != null ? `<span class="file-size">${formatSize(e.size)}</span>` : ''}
+      </div>`;
+    }).join('')}</div>`;
+
+    // Load README if present in this directory
+    loadReadme(fullName, branch, entries);
+  } catch (e) {
+    container.innerHTML = `<div class="error-panel">
+      <div class="error-icon">&#x2630;</div>
+      <div class="error-title">Failed to load</div>
+      <div class="error-detail">${escHtml(e.message)}</div>
+      <button class="btn-retry" onclick="loadRepoTree('${escHtml(fullName)}','${escHtml(branch)}','${escHtml(path)}')">&#x21BB; Retry</button>
+    </div>`;
+  }
+}
+
+function showFileContent(file, fullName, branch) {
+  const container = document.getElementById('repoTreeContainer');
+  let content = '';
+  if (file.encoding === 'base64' && file.content) {
+    try { content = atob(file.content); } catch { content = file.content; }
+  } else {
+    content = file.content || '';
+  }
+
+  // Check if binary (contains null bytes in first 512 chars)
+  const isBinary = content.substring(0, 512).indexOf('\0') !== -1;
+
+  if (isBinary) {
+    // Check if image
+    const ext = (file.name || '').split('.').pop().toLowerCase();
+    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'];
+    if (imageExts.indexOf(ext) !== -1) {
+      // Use base64 data URI for images to avoid external links
+      const imgSrc = file.content ? `data:image/${ext === 'svg' ? 'svg+xml' : ext};base64,${file.content}` : '';
+      container.innerHTML = `<div class="file-content-view">
+        <div class="file-content-header"><span>${escHtml(file.name)} (${formatSize(file.size || 0)})</span></div>
+        <div class="file-content-body" style="text-align:center;padding:2rem">${imgSrc ? `<img src="${imgSrc}" style="max-width:100%;max-height:600px" alt="${escHtml(file.name)}">` : '<span style="color:var(--text-muted)">Image preview unavailable</span>'}</div>
+      </div>`;
+    } else {
+      container.innerHTML = `<div class="file-content-view">
+        <div class="file-content-header"><span>${escHtml(file.name)} (${formatSize(file.size || 0)})</span></div>
+        <div class="file-content-body"><pre style="color:var(--text-muted);text-align:center;padding:2rem">Binary file not shown</pre></div>
+      </div>`;
+    }
+    return;
+  }
+
+  const lines = content.split('\n');
+  const lineHtml = lines.map((line, i) =>
+    `<tr><td class="line-num">${i + 1}</td><td class="line-code">${escHtml(line)}</td></tr>`
+  ).join('');
+
+  container.innerHTML = `<div class="file-content-view">
+    <div class="file-content-header">
+      <span>${escHtml(file.name)} (${lines.length} lines, ${formatSize(file.size || 0)})</span>
+    </div>
+    <div class="file-content-body">
+      <table class="code-lines">${lineHtml}</table>
+    </div>
+  </div>`;
+}
+
+async function loadReadme(fullName, branch, entries) {
+  const readmeContainer = document.getElementById('repoReadme');
+  try {
+    const readme = entries.find(f => /^readme(\.\w+)?$/i.test(f.name));
+    if (!readme) return;
+
+    const readmePath = currentPath ? currentPath + '/' + readme.name : readme.name;
+    const fileData = await giteaFetch(`/repos/${fullName}/contents/${readmePath}?ref=${encodeURIComponent(branch)}`);
+    let raw = '';
+    if (fileData.encoding === 'base64' && fileData.content) {
+      try { raw = atob(fileData.content); } catch { raw = fileData.content; }
+    } else {
+      raw = fileData.content || '';
+    }
+
+    // Use Gitea's markdown rendering API
+    let html;
+    try {
+      const c = getConfig();
+      const headers = { 'Content-Type': 'application/json' };
+      if (c.giteaToken) headers['Authorization'] = `token ${c.giteaToken}`;
+      const r = await fetchWithTimeout(`${c.giteaUrl}/api/v1/markdown`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ Context: fullName, Mode: 'gfm', Text: raw, Wiki: false }),
+      });
+      if (r.ok) {
+        html = await r.text();
+      }
+    } catch { /* fallback below */ }
+
+    if (!html) {
+      // Basic fallback: show as preformatted
+      html = `<pre>${escHtml(raw)}</pre>`;
+    }
+
+    readmeContainer.innerHTML = `<div class="readme-container">
+      <div class="readme-header">&#x1F4D6; ${escHtml(readme.name)}</div>
+      <div class="readme-body">${html}</div>
+    </div>`;
+  } catch {
+    // No README or failed — that's fine
   }
 }
 

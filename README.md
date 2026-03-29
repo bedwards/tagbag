@@ -2,11 +2,11 @@
 
 Self-hosted GitHub replacement. Built from source. All the keys to the castle.
 
-**Current version: v0.12.0**
+**Current version: v0.26.0**
 
 ## What
 
-Three forked open-source projects, one Docker Compose stack, one unified CLI, one dashboard.
+Three forked open-source projects, one Docker Compose stack, one unified CLI, one dashboard. Every repo automatically mirrors to GitHub (private, read-only) with bidirectional issue sync.
 
 | Service | Replaces | Port | Source |
 |---|---|---|---|
@@ -50,42 +50,50 @@ Open the dashboard at [localhost:8888](http://localhost:8888) for a unified view
 
 ```bash
 # Identity
-./cli/tagbag login                 # set up tokens for all three services
-./cli/tagbag whoami                # show identity across services
+tb login                           # interactive password prompt, creates API token
+tb whoami                          # show identity across services
 
 # Infrastructure
-./cli/tagbag status                # show all service status + endpoints
-./cli/tagbag up                    # docker compose up -d
-./cli/tagbag down                  # docker compose down
-./cli/tagbag build                 # rebuild all from source
-./cli/tagbag logs                  # tail all logs
+tb status                          # show all service status + endpoints
+tb up                              # docker compose up -d
+tb down                            # docker compose down
+tb build                           # rebuild all from source
+tb logs                            # tail all logs
 
 # Git operations
-./cli/tagbag clone <owner/repo>    # clone a Gitea repo
-./cli/tagbag web                   # open Gitea repo in browser
-./cli/tagbag push <owner/repo>     # push repo to Gitea (supports --github, --mirror)
+tb repo create                     # create repo (defaults to cwd name), add SSH remote, push
+tb clone <owner/repo>              # clone via SSH (--https to opt in)
+tb web                             # open Gitea repo in browser
 
 # Service CLIs
-./cli/tagbag plane work-items ...  # issues, sprints, modules
-./cli/tagbag gitea prs ...         # repos, pull requests, code review
-./cli/tagbag ci pipelines ...      # CI/CD pipelines, secrets, logs
+tb plane work-items ...            # issues, sprints, modules
+tb gitea prs ...                   # repos, pull requests, code review
+tb ci pipelines ...                # CI/CD pipelines, secrets, logs
 
-# AI Code Review
-./cli/tagbag reviewer start|stop|status|logs|register|protect
+# AI Code Review (Claude + Gemini)
+tb reviewer start|stop|status|logs|register|protect
 
 # GitHub-Gitea Bridge
-./cli/tagbag bridge start|stop|status|logs|register
+tb bridge start|stop|status|logs|register
 ```
 
-### Reviewer
+### AI Code Review
 
-The **reviewer** is an AI-powered code review service. It watches Gitea push events, provides automated review comments on commits, and sets commit statuses. Use `tagbag reviewer register` to set up the webhook and `tagbag reviewer protect` to enforce reviews on branches.
+The **reviewer** runs Claude and Gemini in parallel on every push. Both post review issues to Gitea and set commit statuses. Use `tb reviewer register` to set up the webhook and `tb reviewer protect` to enforce reviews on branches.
+
+### GitHub Mirror
+
+Every push automatically mirrors code (branches + tags) to a private GitHub repo via `gh` CLI. Issues sync bidirectionally between Gitea and GitHub using embedded markers to track pairs. All writes go to TagBag; GitHub is a read-only mirror. No second remote needed.
 
 ### Bridge
 
-The **bridge** links Gitea events to Plane work items. It parses commit messages and pull requests for references like `PROJ-123` and adds comments to the corresponding work items. Use `tagbag bridge register` to set up the webhook for a repository.
+The **bridge** links Gitea events to Plane work items. It parses commit messages and pull requests for references like `PROJ-123` and adds comments to the corresponding work items. Use `tb bridge register` to set up the webhook for a repository.
 
-Run `./cli/tagbag --help` for the full command tree. Every subcommand has `--help`.
+### Dashboard
+
+The dashboard at [localhost:8888](http://localhost:8888) is a self-contained SPA. Clicking a repo opens an inline file browser with directory tree, file viewer with line numbers, README rendering, branch selector, and breadcrumb navigation. No external links to backend services.
+
+Run `tb --help` for the full command tree. Every subcommand has `--help`.
 
 ## SSO
 
@@ -137,6 +145,19 @@ GitHub Actions runs on every push and PR. See `.github/workflows/ci.yml`.
 | [woodpecker-hacking.md](docs/woodpecker-hacking.md) | Woodpecker codebase guide |
 | [integration-architecture.md](docs/integration-architecture.md) | Cross-service webhooks |
 | [what-tagbag-is-and-why-it-exists.md](docs/what-tagbag-is-and-why-it-exists.md) | First-principles explainer |
+
+## Key Files
+
+| Path | What |
+|---|---|
+| `cli/tagbag` | Unified CLI (aliased as `tb`) |
+| `web/index.html` | Dashboard SPA |
+| `web/nginx.conf` | Reverse proxy config |
+| `mirror/github-sync.sh` | Code mirror (branches + tags) to GitHub |
+| `mirror/issue-sync.sh` | Bidirectional issue sync (Gitea ↔ GitHub) |
+| `reviewer/webhook-server.sh` | Webhook receiver + review queue |
+| `reviewer/do-review.sh` | Claude code review |
+| `reviewer/do-review-gemini.sh` | Gemini code review |
 
 ## License
 
