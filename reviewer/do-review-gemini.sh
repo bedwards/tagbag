@@ -81,14 +81,15 @@ REVIEW_TIMEOUT="${TAGBAG_REVIEW_TIMEOUT:-300}"
 REVIEW_OUTPUT=""
 if command -v gemini &>/dev/null; then
     log "Running Gemini CLI review (timeout: ${REVIEW_TIMEOUT}s)..."
-    REVIEW_OUTPUT=$(timeout "$REVIEW_TIMEOUT" gemini -p "$REVIEW_PROMPT" 2>/dev/null) || {
-        if [[ $? -eq 124 ]]; then
-            log "WARNING: Gemini review timed out after ${REVIEW_TIMEOUT}s"
-            REVIEW_OUTPUT="Gemini review timed out after ${REVIEW_TIMEOUT}s. The diff may be too large for automated review."
-        else
-            REVIEW_OUTPUT="Review failed — Gemini CLI error"
-        fi
-    }
+    local_exit=0
+    REVIEW_OUTPUT=$(timeout "$REVIEW_TIMEOUT" gemini -p "$REVIEW_PROMPT" 2>&1) || local_exit=$?
+    if [[ "$local_exit" -eq 124 ]]; then
+        log "WARNING: Gemini review timed out after ${REVIEW_TIMEOUT}s"
+        REVIEW_OUTPUT="Gemini review timed out after ${REVIEW_TIMEOUT}s. The diff may be too large for automated review."
+    elif [[ "$local_exit" -ne 0 ]]; then
+        log "ERROR: Gemini CLI failed (exit $local_exit): ${REVIEW_OUTPUT}"
+        REVIEW_OUTPUT="Review failed — Gemini CLI error (exit $local_exit)"
+    fi
 else
     log "Gemini CLI not available, skipping"
     REVIEW_OUTPUT="Gemini review skipped — gemini CLI not found. Install from https://github.com/google-gemini/gemini-cli"
