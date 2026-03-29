@@ -783,7 +783,8 @@ cmd_reviewer() {
             reviewer_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../reviewer" && pwd)"
             mkdir -p "${TAGBAG_CLONE_DIR}"
             info "Starting reviewer in tmux session '${TMUX_SESSION}'..."
-            tmux new-session -d -s "$TMUX_SESSION" "bash ${reviewer_dir}/webhook-server.sh"
+            tmux new-session -d -s "$TMUX_SESSION" \
+                "export PATH='${PATH}' GITEA_URL='${GITEA_URL}' GITEA_TOKEN='${GITEA_TOKEN}' GITEA_WEBHOOK_SECRET='${GITEA_WEBHOOK_SECRET:-}' TAGBAG_CLONE_DIR='${TAGBAG_CLONE_DIR}' TAGBAG_REVIEW_PORT='${TAGBAG_REVIEW_PORT:-9876}'; bash ${reviewer_dir}/webhook-server.sh"
             echo -e "${GREEN}Reviewer started.${NC}"
             echo "  tmux session: ${TMUX_SESSION}"
             echo "  Webhook port: ${TAGBAG_REVIEW_PORT:-9876}"

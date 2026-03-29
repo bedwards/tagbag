@@ -35,8 +35,8 @@ set_status() {
 log "Reviewing ${REPO}@${SHA:0:8}"
 set_status "pending" "Gemini code review in progress..."
 
-# Clone or update the repo
-REPO_DIR="${CLONE_DIR}/${REPO}"
+# Clone or update the repo (separate dir from Claude to avoid race)
+REPO_DIR="${CLONE_DIR}/${REPO}-gemini"
 if [[ -d "${REPO_DIR}/.git" ]]; then
     cd "$REPO_DIR"
     git fetch origin 2>&1
@@ -101,17 +101,18 @@ if echo "$REVIEW_OUTPUT" | grep -qi "BLOCKER"; then
     HAS_BLOCKERS=true
 fi
 
-# Post review comment on the commit (prefixed to distinguish from Claude review)
+# Post review as an issue on the repo (Gitea has no commit comment API)
 COMMENT="## Gemini Code Review — ${SHA:0:8}
 
 ${REVIEW_OUTPUT}"
 
+issue_title="[Gemini Review] ${SHA:0:8}"
 curl -sf -X POST \
     -H "Authorization: token $GITEA_TOKEN" \
     -H "Content-Type: application/json" \
-    -d "$(jq -n --arg b "$COMMENT" '{body: $b}')" \
-    "${GITEA_URL}/api/v1/repos/${REPO}/git/commits/${SHA}/comments" > /dev/null 2>&1 || \
-    log "Warning: could not post commit comment"
+    -d "$(jq -n --arg t "$issue_title" --arg b "$COMMENT" '{title: $t, body: $b}')" \
+    "${GITEA_URL}/api/v1/repos/${REPO}/issues" > /dev/null 2>&1 || \
+    log "Warning: could not post review issue"
 
 # Set final commit status
 if [[ "$HAS_BLOCKERS" == "true" ]]; then

@@ -39,7 +39,7 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { font-size: 13px; }
+html { font-size: 15px; }
 
 body {
   font-family: var(--sans);
@@ -337,12 +337,17 @@ body::before {
 .priority-none { color: var(--text-muted); }
 
 /* ═══ Repo card ═══ */
-.repo-name {
+a.repo-name, .repo-name {
   font-family: var(--mono);
   font-weight: 600;
   color: var(--accent);
   font-size: 0.9rem;
+  text-decoration: none;
 }
+a.repo-name:hover { text-decoration: underline; }
+
+a.commit-sha { color: var(--blue); text-decoration: none; }
+a.commit-sha:hover { text-decoration: underline; }
 
 .repo-desc {
   color: var(--text-secondary);
@@ -502,6 +507,115 @@ body::before {
 .btn-ghost { background: transparent; color: var(--text-secondary); }
 .btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
 
+/* ═══ Login screen ═══ */
+.login-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.login-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 360px;
+}
+
+.login-card .logo {
+  justify-content: center;
+  font-size: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.login-card .field {
+  margin-bottom: 1rem;
+}
+
+.login-card label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.35rem;
+}
+
+.login-card input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.login-card input:focus { border-color: var(--accent-dim); }
+
+.login-card .btn-login {
+  width: 100%;
+  padding: 10px;
+  margin-top: 0.5rem;
+  background: var(--accent);
+  color: var(--bg-deep);
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.login-card .btn-login:hover { background: var(--accent-dim); }
+.login-card .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.login-error {
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  margin-top: 0.75rem;
+  text-align: center;
+  display: none;
+}
+
+.login-error.visible { display: block; }
+
+.app-shell { display: none; }
+.app-shell.active { display: block; }
+
+.logout-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+}
+
+.logout-btn:hover { border-color: var(--red); color: var(--red); }
+
+.user-display {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
 /* ═══ Responsive ═══ */
 @media (max-width: 768px) {
   .topbar { padding: 0 0.75rem; gap: 0.5rem; }
@@ -514,6 +628,31 @@ body::before {
 </style>
 </head>
 <body>
+
+<!-- ═══ Login Screen ═══ -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div class="logo">
+      <div class="logo-icon">T</div>
+      TagBag
+    </div>
+    <form id="loginForm" autocomplete="on">
+      <div class="field">
+        <label for="loginUser">Username</label>
+        <input id="loginUser" type="text" autocomplete="username" autofocus>
+      </div>
+      <div class="field">
+        <label for="loginPass">Password</label>
+        <input id="loginPass" type="password" autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn-login" id="loginBtn">Sign in</button>
+    </form>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ═══ App Shell (hidden until authenticated) ═══ -->
+<div class="app-shell" id="appShell">
 
 <!-- ═══ Top Bar ═══ -->
 <header class="topbar">
@@ -534,6 +673,8 @@ body::before {
   </div>
 
   <button class="settings-btn" onclick="toggleSettings()">&#x2699; Config</button>
+  <span class="user-display" id="userDisplay"></span>
+  <button class="logout-btn" onclick="logout()">Sign out</button>
 </header>
 
 <!-- ═══ Nav Tabs ═══ -->
@@ -643,6 +784,8 @@ body::before {
     </div>
   </div>
 </div>
+
+</div><!-- /app-shell -->
 
 <script>
 // ═══ Config ═══
@@ -770,6 +913,11 @@ function formatTime(date) {
   return date.toLocaleTimeString();
 }
 
+// ═══ Gitea web URL (direct to Gitea, not through proxy) ═══
+function giteaWebUrl() {
+  return 'http://localhost:3000';
+}
+
 // ═══ Tab switching ═══
 function switchTab(view) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
@@ -846,7 +994,8 @@ async function checkHealth() {
 async function loadCode() {
   showLoading('loadingCode', 'tableCode', 'Loading repositories...');
   try {
-    const repos = await giteaFetch('/user/repos?sort=updated&limit=50');
+    const repos = await giteaFetch('/repos/search?sort=updated&limit=50&order=desc')
+      .then(r => r.data || r);
     const body = document.getElementById('bodyCode');
     if (!repos.length) {
       document.getElementById('loadingCode').innerHTML = '<div class="empty"><div class="empty-icon">&#x2630;</div>No repositories found</div>';
@@ -855,10 +1004,10 @@ async function loadCode() {
     body.innerHTML = repos.map(r => `
       <tr>
         <td>
-          <div class="repo-name">${escHtml(r.full_name)}</div>
+          <a class="repo-name" href="${giteaWebUrl()}/${escHtml(r.full_name)}">${escHtml(r.full_name)}</a>
           <div class="repo-desc">${escHtml(r.description || '')}</div>
         </td>
-        <td><span class="commit-sha">${r.default_branch || 'main'}</span></td>
+        <td><a class="commit-sha" href="${giteaWebUrl()}/${escHtml(r.full_name)}/src/branch/${escHtml(r.default_branch || 'main')}">${escHtml(r.default_branch || 'main')}</a></td>
         <td><span class="time-ago">${timeAgo(r.updated_at)}</span></td>
         <td style="font-family:var(--mono);color:var(--text-muted);font-size:0.8rem">${r.stars_count || 0}</td>
       </tr>
@@ -875,7 +1024,7 @@ async function loadCode() {
 async function loadCommits() {
   showLoading('loadingCommits', 'tableCommits', 'Loading commits...');
   try {
-    const repos = await giteaFetch('/user/repos?sort=updated&limit=10');
+    const repos = await giteaFetch('/repos/search?sort=updated&limit=10&order=desc').then(r => r.data || r);
     let allCommits = [];
     for (const r of repos.slice(0, 5)) {
       try {
@@ -957,7 +1106,7 @@ async function loadIssues() {
 async function loadPrs() {
   showLoading('loadingPrs', 'tablePrs', 'Loading pull requests...');
   try {
-    const repos = await giteaFetch('/user/repos?sort=updated&limit=20');
+    const repos = await giteaFetch('/repos/search?sort=updated&limit=20&order=desc').then(r => r.data || r);
     let allPrs = [];
     for (const r of repos.slice(0, 10)) {
       try {
@@ -1057,10 +1206,107 @@ async function loadAll() {
   loadActions().catch(() => {});
 }
 
-// ═══ Init ═══
-loadAll();
-setInterval(checkHealth, 30000);
-setInterval(loadAll, 120000);
+// ═══ Authentication ═══
+async function tryAutoLogin() {
+  const c = getConfig();
+  if (!c.giteaToken) return showLogin();
+  try {
+    const r = await fetchWithTimeout(`${c.giteaUrl}/api/v1/user`, {
+      headers: { 'Authorization': `token ${c.giteaToken}` }
+    }, 5000);
+    if (!r.ok) return showLogin();
+    const user = await r.json();
+    showApp(user.login);
+  } catch {
+    showLogin();
+  }
+}
+
+function showLogin() {
+  document.getElementById('loginScreen').style.display = '';
+  document.getElementById('appShell').classList.remove('active');
+}
+
+let healthInterval, reloadInterval;
+function showApp(username) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appShell').classList.add('active');
+  document.getElementById('userDisplay').textContent = username || '';
+  loadAll();
+  if (!healthInterval) healthInterval = setInterval(checkHealth, 30000);
+  if (!reloadInterval) reloadInterval = setInterval(loadAll, 120000);
+}
+
+function logout() {
+  localStorage.removeItem('tagbag_gitea_token');
+  localStorage.removeItem('tagbag_gitea_user');
+  location.reload();
+}
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  const errEl = document.getElementById('loginError');
+  const user = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value;
+
+  if (!user || !pass) {
+    errEl.textContent = 'Username and password are required';
+    errEl.classList.add('visible');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+  errEl.classList.remove('visible');
+
+  try {
+    const c = getConfig();
+    const tokenName = 'tagbag-dashboard';
+
+    // Delete any existing dashboard token (ignore errors)
+    await fetch(`${c.giteaUrl}/api/v1/users/${user}/tokens/${tokenName}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Basic ' + btoa(user + ':' + pass) },
+    }).catch(() => {});
+
+    // Create new token
+    const r = await fetchWithTimeout(`${c.giteaUrl}/api/v1/users/${user}/tokens`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + btoa(user + ':' + pass),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: tokenName, scopes: ['all'] }),
+    }, 10000);
+
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.message || `HTTP ${r.status}`);
+    }
+
+    const data = await r.json();
+    const token = data.sha1 || data.token;
+    if (!token) throw new Error('No token in response');
+
+    localStorage.setItem('tagbag_gitea_token', token);
+    localStorage.setItem('tagbag_gitea_user', user);
+    showApp(user);
+  } catch (err) {
+    errEl.textContent = err.message.includes('401') || err.message.includes('Unauthorized')
+      ? 'Invalid username or password'
+      : err.message.includes('timed out')
+      ? 'Gitea is not responding'
+      : `Login failed: ${err.message}`;
+    errEl.classList.add('visible');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+});
+
+// ═══ Init ═══ (replaces the old loadAll() at bottom)
+tryAutoLogin();
 </script>
 </body>
 </html>

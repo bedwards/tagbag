@@ -37,6 +37,8 @@ verify_signature() {
     return 0
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 log "TagBag Code Reviewer starting on port ${REVIEW_PORT}"
 log "Queue: ${REVIEW_QUEUE}"
 log "Log: ${REVIEW_LOG}"
@@ -53,7 +55,12 @@ process_queue() {
             ')
             if [[ -n "$line" ]]; then
                 log "Processing: $line"
-                SCRIPT_DIR="$(dirname "$0")"
+                # Mirror to GitHub (fire and forget)
+                MIRROR_SCRIPT="${SCRIPT_DIR}/../mirror/github-sync.sh"
+                if [[ -x "$MIRROR_SCRIPT" ]] && command -v gh &>/dev/null; then
+                    # shellcheck disable=SC2086
+                    bash "$MIRROR_SCRIPT" $line 2>&1 | tee -a "$REVIEW_LOG" &
+                fi
                 # Run Claude and Gemini reviews in parallel
                 # shellcheck disable=SC2086
                 bash "${SCRIPT_DIR}/do-review.sh" $line 2>&1 | tee -a "$REVIEW_LOG" &
@@ -82,6 +89,8 @@ HTTP_PID=$!
 
 trap 'kill $QUEUE_PID $HTTP_PID 2>/dev/null; log "Reviewer stopped"' EXIT
 
-# Wait for either process to exit
-wait -n $QUEUE_PID $HTTP_PID 2>/dev/null || true
+# Wait for either process to exit (compatible with bash 3.x which lacks wait -n)
+while kill -0 $QUEUE_PID 2>/dev/null && kill -0 $HTTP_PID 2>/dev/null; do
+    sleep 1
+done
 log "A subprocess exited unexpectedly, shutting down"
