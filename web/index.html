@@ -1452,21 +1452,26 @@ function renderRepoIssues() {
 async function loadRepoPulls(fullName) {
   showLoading('loadingRepoPulls', 'tableRepoPulls', 'Loading pull requests...');
   try {
-    const prs = await giteaFetch(`/repos/${fullName}/pulls?state=open&limit=50`);
+    const prs = await giteaFetch(`/repos/${fullName}/pulls?state=all&sort=updated&limit=50`);
     const body = document.getElementById('bodyRepoPulls');
     if (!prs.length) {
-      document.getElementById('loadingRepoPulls').innerHTML = '<div class="empty"><div class="empty-icon">&#x21C4;</div>No open pull requests</div>';
+      document.getElementById('loadingRepoPulls').innerHTML = '<div class="empty"><div class="empty-icon">&#x21C4;</div>No pull requests</div>';
       document.getElementById('countRepoPulls').textContent = '0';
       return;
     }
-    body.innerHTML = prs.map(p => `<tr>
+    body.innerHTML = prs.map(p => {
+      const merged = p.merged;
+      const stBadge = merged ? 'badge-purple' : p.state === 'open' ? 'badge-green' : 'badge-red';
+      const stLabel = merged ? 'merged' : p.state;
+      return `<tr>
       <td style="font-family:var(--mono);font-size:0.85rem;color:var(--accent)">#${p.number}</td>
       <td>${escHtml(p.title)}</td>
       <td style="font-size:0.85rem;color:var(--text-secondary)">${escHtml(p.user?.login || '')}</td>
       <td><span class="badge badge-purple">${escHtml(p.head?.ref || '')}</span> &rarr; <span class="badge badge-muted">${escHtml(p.base?.ref || '')}</span></td>
-      <td><span class="badge ${p.mergeable ? 'badge-green' : 'badge-yellow'}">${p.mergeable ? 'mergeable' : 'conflicts'}</span></td>
-      <td><span class="time-ago">${timeAgo(p.updated_at)}</span></td>
-    </tr>`).join('');
+      <td><span class="badge ${stBadge}">${stLabel}</span></td>
+      <td><span class="time-ago">${timeAgo(p.merged_at || p.updated_at)}</span></td>
+    </tr>`;
+    }).join('');
     document.getElementById('countRepoPulls').textContent = prs.length;
     document.getElementById('loadingRepoPulls').style.display = 'none';
     document.getElementById('tableRepoPulls').style.display = 'table';
@@ -1716,18 +1721,22 @@ async function loadPrs() {
     let allPrs = [];
     for (const r of repos.slice(0, 10)) {
       try {
-        const prs = await giteaFetch(`/repos/${r.full_name}/pulls?state=open&limit=20`);
+        const prs = await giteaFetch(`/repos/${r.full_name}/pulls?state=all&sort=updated&limit=20`);
         allPrs.push(...prs.map(p => ({ ...p, repo: r.full_name })));
       } catch { /* individual repo failure is non-fatal */ }
     }
-    allPrs.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    allPrs.sort((a, b) => new Date(b.merged_at || b.updated_at) - new Date(a.merged_at || a.updated_at));
     const body = document.getElementById('bodyPrs');
     if (!allPrs.length) {
-      document.getElementById('loadingPrs').innerHTML = '<div class="empty"><div class="empty-icon">&#x21C4;</div>No open pull requests</div>';
+      document.getElementById('loadingPrs').innerHTML = '<div class="empty"><div class="empty-icon">&#x21C4;</div>No pull requests</div>';
       document.getElementById('countPrs').textContent = '0';
       return;
     }
-    body.innerHTML = allPrs.map(p => `
+    body.innerHTML = allPrs.map(p => {
+      const merged = p.merged;
+      const stBadge = merged ? 'badge-purple' : p.state === 'open' ? 'badge-green' : 'badge-red';
+      const stLabel = merged ? 'merged' : p.state;
+      return `
       <tr>
         <td style="font-family:var(--mono);font-size:0.85rem;color:var(--accent)">#${p.number}</td>
         <td>
@@ -1736,10 +1745,10 @@ async function loadPrs() {
         </td>
         <td style="font-size:0.85rem;color:var(--text-secondary)">${escHtml(p.user?.login || '')}</td>
         <td><span class="badge badge-purple">${escHtml(p.head?.ref || '')}</span> &rarr; <span class="badge badge-muted">${escHtml(p.base?.ref || '')}</span></td>
-        <td><span class="badge ${p.mergeable ? 'badge-green' : 'badge-yellow'}">${p.mergeable ? 'mergeable' : 'conflicts'}</span></td>
-        <td><span class="time-ago">${timeAgo(p.updated_at)}</span></td>
-      </tr>
-    `).join('');
+        <td><span class="badge ${stBadge}">${stLabel}</span></td>
+        <td><span class="time-ago">${timeAgo(p.merged_at || p.updated_at)}</span></td>
+      </tr>`;
+    }).join('');
     document.getElementById('countPrs').textContent = allPrs.length;
     document.getElementById('loadingPrs').style.display = 'none';
     document.getElementById('tablePrs').style.display = 'table';
