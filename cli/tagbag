@@ -146,7 +146,7 @@ Global options:
   --help                  Show this help
 
 Commands:
-  login                   Configure tokens for all three services (interactive)
+  login [--user USER]     Authenticate with TagBag (creates API tokens)
   whoami                  Show current identity across all services
   status                  Show status of all services
   up                      Start all services (docker compose up -d)
@@ -154,7 +154,8 @@ Commands:
   build [service...]      Build services from source
   logs [service...]       Tail service logs
 
-  clone <owner/repo> [path] Clone a repo from Gitea (--ssh for SSH)
+  repo create [name]      Create a repo, add origin, push (default: cwd name)
+  clone <owner/repo> [path] Clone a repo from Gitea (SSH default, --https)
   web                     Open TagBag dashboard in browser
   push <owner/repo> [opts] Push a Gitea repo to GitHub (code+commits+tags)
   reviewer                Manage Claude Code reviewer (tmux, webhooks)
@@ -1056,30 +1057,114 @@ cmd_push() {
     echo -e "${GREEN}Done!${NC} ${gitea_repo} pushed to github.com/${github_repo}"
 }
 
+# ─── Repo Command ────────────────────────────────────────────────────────────
+
+cmd_repo() {
+    local subcmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        create) cmd_repo_create "$@" ;;
+        *)      die "Usage: tagbag repo create [name] [--private] [--description DESC]" ;;
+    esac
+}
+
+cmd_repo_create() {
+    local name="" desc="" private="false"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --private)     private="true"; shift ;;
+            --description) desc="$2"; shift 2 ;;
+            --*)           die "Unknown option: $1" ;;
+            *)             name="$1"; shift ;;
+        esac
+    done
+
+    # Default name to current directory
+    if [[ -z "$name" ]]; then
+        name=$(basename "$(pwd)")
+    fi
+
+    [[ -n "$GITEA_TOKEN" ]] || die "Not logged in. Run: tagbag login"
+
+    # Get current user
+    local user
+    user=$(curl -sf -H "Authorization: token $GITEA_TOKEN" "${GITEA_URL}/api/v1/user" | jq -r '.login // empty')
+    [[ -n "$user" ]] || die "Could not determine user. Run: tagbag login"
+
+    # Create the repo
+    local body
+    body=$(jq -n --arg n "$name" --arg d "$desc" --argjson p "$private" \
+        '{name: $n, description: $d, private: $p}')
+    local resp
+    resp=$(curl -sf -X POST "${GITEA_URL}/api/v1/user/repos" \
+        -H "Authorization: token $GITEA_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$body" 2>/dev/null)
+
+    if [[ -z "$resp" ]]; then
+        die "Failed to create repo (does '${user}/${name}' already exist?)"
+    fi
+
+    local clone_url ssh_url html_url
+    clone_url=$(echo "$resp" | jq -r '.clone_url')
+    ssh_url=$(echo "$resp" | jq -r '.ssh_url')
+    html_url=$(echo "$resp" | jq -r '.html_url')
+
+    echo -e "${GREEN}Created ${user}/${name}${NC}"
+    echo "  ${html_url}"
+
+    # Init git repo if needed
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        git init -q
+        info "Initialized git repo"
+    fi
+
+    # Add or update origin (SSH by default)
+    if git remote get-url origin &>/dev/null; then
+        git remote set-url origin "$ssh_url"
+        info "Updated origin → ${ssh_url}"
+    else
+        git remote add origin "$ssh_url"
+        info "Added origin → ${ssh_url}"
+    fi
+
+    # Push if there are commits
+    if git rev-parse HEAD &>/dev/null 2>&1; then
+        local branch
+        branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "main")
+        git push -u origin "$branch" 2>&1
+    else
+        info "No commits yet — push when ready"
+    fi
+}
+
 # ─── Clone Command ───────────────────────────────────────────────────────────
 
 cmd_clone() {
     local repo="${1:-}"
     if [[ -z "$repo" || "$repo" == "--help" || "$repo" == "-h" ]]; then
-        echo "Usage: tagbag clone <owner/repo> [path] [--ssh]"
+        echo "Usage: tagbag clone <owner/repo> [path] [--https]"
         echo ""
-        echo "Clone a repository from Gitea."
-        echo "  --ssh    Use SSH URL (default: HTTPS)"
+        echo "Clone a repository from Gitea (SSH by default)."
+        echo "  --https  Use HTTPS URL instead of SSH"
         return
     fi
     shift
 
-    local use_ssh=false target=""
+    local use_https=false target=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --ssh) use_ssh=true; shift ;;
-            *)     target="$1"; shift ;;
+            --https) use_https=true; shift ;;
+            --ssh)   shift ;; # already default, accept silently
+            *)       target="$1"; shift ;;
         esac
     done
 
     require_gitea_token
-    local url_field=".clone_url"
-    [[ "$use_ssh" == "true" ]] && url_field=".ssh_url"
+    local url_field=".ssh_url"
+    [[ "$use_https" == "true" ]] && url_field=".clone_url"
     local clone_url
     clone_url=$(gitea_api GET "/repos/${repo}" | jq -r "$url_field // empty")
     [[ -n "$clone_url" ]] || die "Could not find repo: ${repo}"
@@ -1129,164 +1214,135 @@ save_credentials() {
 }
 
 cmd_login() {
-    local auto=false
-    local gitea_user="${TAGBAG_GITEA_USER:-tagbag}"
-    local gitea_pass="${TAGBAG_GITEA_PASS:-tagbag123}"
-    local token_name="${TAGBAG_TOKEN_NAME:-tagbag-auto}"
+    local gitea_user="" token_name="tagbag-cli"
+    local with_token=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --auto)        auto=true; shift ;;
-            --gitea-user)  [[ -n "$2" && "$2" != --* ]] || die "Option '--gitea-user' requires an argument."; gitea_user="$2"; shift 2 ;;
-            --gitea-pass)  [[ -n "$2" && "$2" != --* ]] || die "Option '--gitea-pass' requires an argument."; gitea_pass="$2"; shift 2 ;;
-            --token-name)  [[ -n "$2" && "$2" != --* ]] || die "Option '--token-name' requires an argument."; token_name="$2"; shift 2 ;;
+            --user)        gitea_user="$2"; shift 2 ;;
+            --with-token)  with_token=true; shift ;;
             *)             die "Unknown login option: $1" ;;
         esac
     done
 
-    if [[ "$auto" == "true" ]]; then
-        cmd_login_auto "$gitea_user" "$gitea_pass" "$token_name"
-        return
-    fi
-
-    cat <<'EOF'
-tagbag login — configure tokens for all three services
-
-EOF
-    echo -e "${BOLD}Step 1: Gitea token${NC}"
-    echo "  Create at: ${GITEA_URL}/user/settings/applications"
-    echo "  Scopes: write:repository, write:issue, read:organization, read:user"
-    echo ""
-    read -rp "  Gitea token: " GITEA_TOKEN
-    if [[ -n "$GITEA_TOKEN" ]]; then
+    # ── Paste-a-token mode (like gh auth login --with-token) ─────────────────
+    if [[ "$with_token" == "true" ]]; then
+        echo -e "${BOLD}Paste your Gitea API token:${NC}"
+        read -rs GITEA_TOKEN
+        echo ""
+        if [[ -z "$GITEA_TOKEN" ]]; then
+            die "No token provided"
+        fi
         local user
         user=$(curl -sf -H "Authorization: token $GITEA_TOKEN" "${GITEA_URL}/api/v1/user" | jq -r '.login // empty')
         if [[ -n "$user" ]]; then
-            echo -e "  ${GREEN}Authenticated as: ${user}${NC}"
+            echo -e "${GREEN}Logged in as ${user}${NC}"
         else
-            warn "Could not verify Gitea token (is Gitea running?)"
+            die "Token is invalid or Gitea is not running at ${GITEA_URL}"
         fi
+        _login_configure_woodpecker
+        _login_configure_plane
+        _login_save_config
+        return
     fi
 
+    # ── Interactive login (default) ──────────────────────────────────────────
+    echo -e "${BOLD}Logging in to ${GITEA_URL}${NC}"
     echo ""
-    echo -e "${BOLD}Step 2: Plane API token${NC}"
-    echo "  Create at: ${PLANE_URL} → Workspace Settings → API Tokens"
+
+    # Username
+    if [[ -z "$gitea_user" ]]; then
+        read -rp "  Username: " gitea_user
+    else
+        echo "  Username: ${gitea_user}"
+    fi
+    [[ -n "$gitea_user" ]] || die "Username is required"
+
+    # Password (hidden input, never stored)
+    read -rsp "  Password: " gitea_pass
     echo ""
-    read -rp "  Plane API token: " PLANE_API_TOKEN
-    if [[ -n "$PLANE_API_TOKEN" ]]; then
-        local plane_user
-        plane_user=$(curl -sf -H "X-Api-Key: $PLANE_API_TOKEN" "${PLANE_URL}/api/v1/users/me/" | jq -r '.display_name // empty')
-        if [[ -n "$plane_user" ]]; then
-            echo -e "  ${GREEN}Authenticated as: ${plane_user}${NC}"
-        else
-            warn "Could not verify Plane token (is Plane running?)"
-        fi
+
+    # Verify credentials
+    local verify
+    verify=$(curl -sf -u "${gitea_user}:${gitea_pass}" "${GITEA_URL}/api/v1/user" 2>/dev/null | jq -r '.login // empty')
+    if [[ -z "$verify" ]]; then
+        die "Login failed — bad credentials or Gitea is not running"
     fi
 
-    echo ""
-    echo -e "${BOLD}Step 3: Woodpecker token${NC}"
-    echo "  Create at: ${WOODPECKER_URL} → User icon → Personal Access Token"
-    echo "  (Log in via Gitea OAuth first)"
-    echo ""
-    read -rp "  Woodpecker token: " WOODPECKER_TOKEN
-    if [[ -n "$WOODPECKER_TOKEN" ]]; then
-        local wp_user
-        wp_user=$(curl -sf -H "Authorization: Bearer $WOODPECKER_TOKEN" "${WOODPECKER_URL}/api/user" | jq -r '.login // empty')
-        if [[ -n "$wp_user" ]]; then
-            echo -e "  ${GREEN}Authenticated as: ${wp_user}${NC}"
-        else
-            warn "Could not verify Woodpecker token (is Woodpecker running?)"
-        fi
-    fi
-
-    echo ""
-    _login_save_config
-}
-
-cmd_login_auto() {
-    local gitea_user="$1" gitea_pass="$2" token_name="$3"
-
-    info "Non-interactive login — creating tokens automatically"
-    echo ""
-
-    # ── Step 1: Gitea API token ──────────────────────────────────────────────
-    echo -e "${BOLD}Step 1: Gitea API token${NC}"
-
-    # Delete any existing token with the same name (ignore errors)
+    # Delete any existing CLI token (ignore errors)
     curl -sf -X DELETE \
         -u "${gitea_user}:${gitea_pass}" \
         "${GITEA_URL}/api/v1/users/${gitea_user}/tokens/${token_name}" \
         >/dev/null 2>&1 || true
 
+    # Create API token
     local gitea_resp
     gitea_resp=$(curl -sf -X POST \
         "${GITEA_URL}/api/v1/users/${gitea_user}/tokens" \
         -u "${gitea_user}:${gitea_pass}" \
         -H 'Content-Type: application/json' \
-        -d "{\"name\":\"${token_name}\",\"scopes\":[\"write:repository\",\"write:issue\",\"read:organization\",\"read:user\"]}" 2>/dev/null) || true
+        -d "$(jq -n --arg n "$token_name" '{name: $n, scopes: ["all"]}')" 2>/dev/null)
 
-    if [[ -n "$gitea_resp" ]]; then
-        GITEA_TOKEN=$(echo "$gitea_resp" | jq -r '.sha1 // .token // empty')
-        if [[ -n "$GITEA_TOKEN" ]]; then
-            echo -e "  ${GREEN}Gitea token created for user: ${gitea_user}${NC}"
-        else
-            warn "Gitea responded but no token field found in response"
-            warn "Response: ${gitea_resp}"
-        fi
-    else
-        warn "Could not create Gitea token (is Gitea running at ${GITEA_URL}?)"
+    GITEA_TOKEN=$(echo "$gitea_resp" | jq -r '.sha1 // .token // empty')
+    if [[ -z "$GITEA_TOKEN" ]]; then
+        die "Failed to create API token"
     fi
 
-    # ── Step 2: Plane API token ──────────────────────────────────────────────
-    echo ""
-    echo -e "${BOLD}Step 2: Plane API token${NC}"
+    echo -e "${GREEN}Logged in as ${gitea_user}${NC}"
 
-    if curl -s "${PLANE_URL}/api/v1/users/me/" &>/dev/null; then
-        # Plane is up, but we cannot create API tokens via the API without
-        # an existing token or admin credentials. Check if a token is already
-        # configured in the environment.
-        if [[ -n "$PLANE_API_TOKEN" ]]; then
-            local plane_user
-            plane_user=$(curl -sf -H "X-Api-Key: $PLANE_API_TOKEN" \
-                "${PLANE_URL}/api/v1/users/me/" 2>/dev/null | jq -r '.display_name // empty' 2>/dev/null)
-            if [[ -n "$plane_user" ]]; then
-                echo -e "  ${GREEN}Using existing Plane token (user: ${plane_user})${NC}"
-            else
-                warn "Existing PLANE_API_TOKEN is invalid; clearing it"
-                PLANE_API_TOKEN=""
-            fi
-        else
-            warn "Plane is running but API tokens must be created in the web UI"
-            echo "  Visit: ${PLANE_URL} -> Workspace Settings -> API Tokens"
-            echo "  Then run: tagbag login (interactive) or set PLANE_API_TOKEN"
-        fi
-    else
-        warn "Plane is not reachable at ${PLANE_URL} — skipping"
-    fi
+    # Woodpecker and Plane use Gitea OAuth — configure if reachable
+    _login_configure_woodpecker
+    _login_configure_plane
 
-    # ── Step 3: Woodpecker token ─────────────────────────────────────────────
-    echo ""
-    echo -e "${BOLD}Step 3: Woodpecker token${NC}"
+    _login_save_config
+}
 
+_login_configure_woodpecker() {
     if [[ -n "$WOODPECKER_TOKEN" ]]; then
         local wp_user
         wp_user=$(curl -sf -H "Authorization: Bearer $WOODPECKER_TOKEN" \
             "${WOODPECKER_URL}/api/user" 2>/dev/null | jq -r '.login // empty' 2>/dev/null)
         if [[ -n "$wp_user" ]]; then
-            echo -e "  ${GREEN}Using existing Woodpecker token (user: ${wp_user})${NC}"
-        else
-            warn "Existing WOODPECKER_TOKEN is invalid; clearing it"
-            WOODPECKER_TOKEN=""
+            echo -e "  Woodpecker: ${GREEN}${wp_user}${NC} (existing token)"
+            return
         fi
-    else
-        warn "Woodpecker tokens require OAuth login via Gitea first"
-        echo "  1. Open ${WOODPECKER_URL} and log in with your Gitea account"
-        echo "  2. Go to User icon -> Personal Access Token"
-        echo "  3. Then run: tagbag login (interactive) or set WOODPECKER_TOKEN"
     fi
+    echo -e "  Woodpecker: log in at ${WOODPECKER_URL} (Gitea OAuth), then copy token from User → Personal Access Token"
+    read -rp "  Woodpecker token (Enter to skip): " WOODPECKER_TOKEN
+    if [[ -n "$WOODPECKER_TOKEN" ]]; then
+        local wp_user
+        wp_user=$(curl -sf -H "Authorization: Bearer $WOODPECKER_TOKEN" \
+            "${WOODPECKER_URL}/api/user" 2>/dev/null | jq -r '.login // empty' 2>/dev/null)
+        if [[ -n "$wp_user" ]]; then
+            echo -e "  Woodpecker: ${GREEN}${wp_user}${NC}"
+        else
+            warn "Could not verify Woodpecker token"
+        fi
+    fi
+}
 
-    echo ""
-    _login_save_config
+_login_configure_plane() {
+    if [[ -n "$PLANE_API_TOKEN" ]]; then
+        local plane_user
+        plane_user=$(curl -sf -H "X-Api-Key: $PLANE_API_TOKEN" \
+            "${PLANE_URL}/api/v1/users/me/" 2>/dev/null | jq -r '.display_name // empty' 2>/dev/null)
+        if [[ -n "$plane_user" ]]; then
+            echo -e "  Plane: ${GREEN}${plane_user}${NC} (existing token)"
+            return
+        fi
+    fi
+    echo -e "  Plane: create API token at ${PLANE_URL} → Workspace Settings → API Tokens"
+    read -rp "  Plane token (Enter to skip): " PLANE_API_TOKEN
+    if [[ -n "$PLANE_API_TOKEN" ]]; then
+        local plane_user
+        plane_user=$(curl -sf -H "X-Api-Key: $PLANE_API_TOKEN" \
+            "${PLANE_URL}/api/v1/users/me/" 2>/dev/null | jq -r '.display_name // empty' 2>/dev/null)
+        if [[ -n "$plane_user" ]]; then
+            echo -e "  Plane: ${GREEN}${plane_user}${NC}"
+        else
+            warn "Could not verify Plane token"
+        fi
+    fi
 }
 
 _login_save_config() {
@@ -1374,6 +1430,7 @@ main() {
         down)           cmd_down "$@" ;;
         build)          cmd_build "$@" ;;
         logs)           cmd_logs "$@" ;;
+        repo)           cmd_repo "$@" ;;
         clone)          cmd_clone "$@" ;;
         web)            cmd_web ;;
         push)           cmd_push "$@" ;;
