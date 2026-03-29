@@ -90,6 +90,27 @@ require_woodpecker_token() {
     [[ -n "$WOODPECKER_TOKEN" ]] || die "WOODPECKER_TOKEN not set. Export it or pass --woodpecker-token."
 }
 
+# Resolve a Plane project identifier (e.g. MEM) or UUID to UUID
+resolve_plane_project() {
+    local ws="$1" proj="$2"
+    # If it looks like a UUID, use as-is
+    if [[ "$proj" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        echo "$proj"
+        return
+    fi
+    # Otherwise treat as identifier and look up UUID
+    require_plane_token
+    local result
+    result=$(curl -sf "${PLANE_URL}/api/v1/workspaces/${ws}/projects/" \
+        -H "X-Api-Key: $PLANE_API_TOKEN" 2>/dev/null) || { die "Could not fetch Plane projects"; }
+    local uuid
+    uuid=$(echo "$result" | jq -r --arg id "$proj" '
+        (.results // .)[] | select(.identifier == $id) | .id
+    ' 2>/dev/null | head -1)
+    [[ -n "$uuid" && "$uuid" != "null" ]] || die "No Plane project with identifier '${proj}' in workspace '${ws}'"
+    echo "$uuid"
+}
+
 # Plane API helper
 plane_api() {
     local method="$1" path="$2"
@@ -234,8 +255,9 @@ cmd_plane() {
             plane_api GET "/workspaces/${ws}/projects/" | jq '.' ;;
 
         work-items)
-            local ws="${1:?Usage: tagbag plane work-items <workspace> <project-id>}"
-            local proj="${2:?Usage: tagbag plane work-items <workspace> <project-id>}"
+            local ws="${1:?Usage: tagbag plane work-items <workspace> <project>}"
+            local proj="${2:?Usage: tagbag plane work-items <workspace> <project>}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             shift 2
             local extra=""
             while [[ $# -gt 0 ]]; do
@@ -249,13 +271,14 @@ cmd_plane() {
             plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/?${extra#&}" | jq '.' ;;
 
         work-item)
-            local ws="${1:?Usage: tagbag plane work-item <workspace> <project-id|PROJ-123> <id>}"
+            local ws="${1:?Usage: tagbag plane work-item <workspace> <project|PROJ-123> <id>}"
             local second="$2"
             # Support PROJ-123 shorthand (workspace-level lookup)
             if [[ "$second" =~ ^[A-Z]+-[0-9]+$ ]]; then
                 plane_api GET "/workspaces/${ws}/work-items/${second}/" | jq '.'
             else
-                local proj="$second"
+                local proj
+                proj=$(resolve_plane_project "$ws" "$second")
                 local iid="${3:?}"
                 plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/" | jq '.'
             fi
@@ -276,8 +299,9 @@ cmd_plane() {
             plane_api GET "/workspaces/${ws}/work-items/search/?search=$(printf '%s' "$query" | jq -sRr @uri)&limit=${limit}" | jq '.' ;;
 
         create-work-item)
-            local ws="${1:?Usage: tagbag plane create-work-item <workspace> <project-id> --name ...}"
+            local ws="${1:?Usage: tagbag plane create-work-item <workspace> <project> --name ...}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             shift 2
             local name="" desc="" priority="" state="" assignees="[]" labels="[]"
             local -a assignee_arr=() label_arr=()
@@ -317,8 +341,9 @@ cmd_plane() {
             plane_api POST "/workspaces/${ws}/projects/${proj}/work-items/" -d "$body" | jq '.' ;;
 
         update-work-item)
-            local ws="${1:?Usage: tagbag plane update-work-item <workspace> <project-id> <id> --name ...}"
+            local ws="${1:?Usage: tagbag plane update-work-item <workspace> <project> <id> --name ...}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
             shift 3
             local body="{}"
@@ -335,29 +360,34 @@ cmd_plane() {
             plane_api PATCH "/workspaces/${ws}/projects/${proj}/work-items/${iid}/" -d "$body" | jq '.' ;;
 
         delete-work-item)
-            local ws="${1:?Usage: tagbag plane delete-work-item <workspace> <project-id> <id>}"
+            local ws="${1:?Usage: tagbag plane delete-work-item <workspace> <project> <id>}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
             plane_api DELETE "/workspaces/${ws}/projects/${proj}/work-items/${iid}/" ;;
 
         states)
-            local ws="${1:?Usage: tagbag plane states <workspace> <project-id>}"
+            local ws="${1:?Usage: tagbag plane states <workspace> <project>}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             plane_api GET "/workspaces/${ws}/projects/${proj}/states/" | jq '.' ;;
 
         labels)
-            local ws="${1:?Usage: tagbag plane labels <workspace> <project-id>}"
+            local ws="${1:?Usage: tagbag plane labels <workspace> <project>}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             plane_api GET "/workspaces/${ws}/projects/${proj}/labels/" | jq '.' ;;
 
         cycles)
-            local ws="${1:?Usage: tagbag plane cycles <workspace> <project-id>}"
+            local ws="${1:?Usage: tagbag plane cycles <workspace> <project>}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             plane_api GET "/workspaces/${ws}/projects/${proj}/cycles/" | jq '.' ;;
 
         modules)
-            local ws="${1:?Usage: tagbag plane modules <workspace> <project-id>}"
+            local ws="${1:?Usage: tagbag plane modules <workspace> <project>}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             plane_api GET "/workspaces/${ws}/projects/${proj}/modules/" | jq '.' ;;
 
         members)
@@ -365,14 +395,16 @@ cmd_plane() {
             plane_api GET "/workspaces/${ws}/members/" | jq '.' ;;
 
         comments)
-            local ws="${1:?Usage: tagbag plane comments <workspace> <project-id> <work-item-id>}"
+            local ws="${1:?Usage: tagbag plane comments <workspace> <project> <work-item-id>}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
             plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/comments/" | jq '.' ;;
 
         add-comment)
-            local ws="${1:?Usage: tagbag plane add-comment <workspace> <project-id> <work-item-id> --body TEXT}"
+            local ws="${1:?Usage: tagbag plane add-comment <workspace> <project> <work-item-id> --body TEXT}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
             shift 3
             local body_text=""
@@ -388,8 +420,9 @@ cmd_plane() {
             plane_api POST "/workspaces/${ws}/projects/${proj}/work-items/${iid}/comments/" -d "$payload" | jq '.' ;;
 
         activities)
-            local ws="${1:?Usage: tagbag plane activities <workspace> <project-id> <work-item-id>}"
+            local ws="${1:?Usage: tagbag plane activities <workspace> <project> <work-item-id>}"
             local proj="${2:?}"
+            proj=$(resolve_plane_project "$ws" "$proj")
             local iid="${3:?}"
             plane_api GET "/workspaces/${ws}/projects/${proj}/work-items/${iid}/activities/" | jq '.' ;;
 
